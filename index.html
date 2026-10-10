@@ -234,6 +234,10 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
       </div>
       <div class="card">
         <div class="row" style="gap:22px;align-items:flex-end">
+          <div class="field" style="flex:1 1 220px"><label for="voice">Voice name</label><input type="text" id="voice" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="For example Brio"></div>
+          <div class="field" style="flex:1 1 220px"><label for="model">Model</label><select id="model"><option value="gemini-3.8-flash-tts">Flash TTS (best quality)</option><option value="gemini-3.8-flash-lite-tts">Flash-Lite TTS (cheaper)</option></select></div>
+        </div>
+        <div class="row" style="gap:22px;align-items:flex-end;margin-top:16px">
           <div class="field" style="flex:1 1 320px"><label for="style">Delivery style</label><input type="text" id="style"></div>
           <div class="field"><span class="lbl">File format</span><div class="seg" id="fmt"><button data-f="mp3" class="on">MP3</button><button data-f="wav">WAV</button></div></div>
         </div>
@@ -291,8 +295,7 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
   <div class="field"><label for="sWorker">Worker URL</label><input type="url" id="sWorker" placeholder="https://insights-studio-notion.yourname.workers.dev" autocapitalize="off" autocorrect="off"></div>
   <div class="field"><label for="sPass">Passcode</label><input type="password" id="sPass" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
   <div class="field"><label for="sKey">Gemini API key</label><input type="password" id="sKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="From Google AI Studio"></div>
-  <div class="field"><label for="sModel">Gemini TTS model</label><input type="text" id="sModel" autocapitalize="off" autocorrect="off"></div>
-  <p class="help">Voice is fixed to <b id="voiceName"></b>. Change it in the CONFIG block at the top of the script in index.html.</p>
+  <p class="help">Voice and model are chosen on the Audio step.</p>
   <div class="row"><button class="btn primary" id="btnSave">Save and load episodes</button><button class="btn ghost" id="btnClose">Close</button></div>
 </div></dialog>
 <div class="toast" id="toast" role="status"></div>
@@ -300,9 +303,9 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
 <script>
 /* ---------- CONFIG ---------- */
 const CONFIG = {
-  voice: 'Kore',                         // fixed narrator voice
+  voice: 'Brio',                         // default narrator voice, editable on the Audio step
   defaultModel: 'gemini-3.8-flash-tts',  // newest Gemini TTS model; change in Settings if Google renames it
-  fallbackModels: ['gemini-3.8-flash-lite-tts', 'gemini-2.5-flash-preview-tts'],
+  fallbackModels: [],                    // your model choice is used as selected
   defaultStyle: 'Warm, calm, confident podcast narrator. Natural conversational pace with short pauses between paragraphs.',
   maxChunkChars: 2800,
   gapMs: 350,
@@ -397,7 +400,7 @@ window.Studio = {buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes
 /* ---------- state ---------- */
 const S = { episodes:[], series:'All', q:'', ep:null, audio:null, fmt:'mp3', step:1, maxStep:1, busy:false };
 const cleanUrl = u => { u=(u||'').replace(/\s+/g,''); if(u && !/^https?:\/\//i.test(u)) u='https://'+u; return u.replace(/\/+$/,''); };
-const cfg = () => ({ worker:cleanUrl(store.get('cfg.worker','')), pass:(store.get('cfg.pass','')||'').trim(), key:(store.get('cfg.key','')||'').trim(), model:store.get('cfg.model',CONFIG.defaultModel)||CONFIG.defaultModel });
+const cfg = () => ({ worker:cleanUrl(store.get('cfg.worker','')), pass:(store.get('cfg.pass','')||'').trim(), key:(store.get('cfg.key','')||'').trim(), model:(m=>['gemini-3.8-flash-tts','gemini-3.8-flash-lite-tts'].includes(m)?m:CONFIG.defaultModel)(store.get('cfg.model',CONFIG.defaultModel)), voice:(store.get('cfg.voice',CONFIG.voice)||CONFIG.voice).trim() });
 const draftKey = id => 'draft.' + id;
 const draft = () => (S.ep && store.get(draftKey(S.ep.id), {})) || {};
 const saveDraft = patch => { if(S.ep) store.set(draftKey(S.ep.id), {...draft(), ...patch}); };
@@ -491,6 +494,10 @@ function updateCounts(){
 }
 $('#narr').addEventListener('input',()=>{ saveDraft({narration:$('#narr').value}); updateCounts(); });
 $('#style').addEventListener('change',()=>store.set('cfg.style',$('#style').value));
+function initVoiceModel(){ const c=cfg(); $('#voice').value=c.voice; $('#model').value=c.model; }
+$('#voice').addEventListener('input',()=>store.set('cfg.voice',$('#voice').value.trim()));
+$('#model').addEventListener('change',()=>store.set('cfg.model',$('#model').value));
+initVoiceModel();
 $('#btnPaste').onclick=async()=>{ try{ const t=await navigator.clipboard.readText(); if(t){ $('#narr').value=t; saveDraft({narration:t}); updateCounts(); toast('Pasted'); } }catch(e){ toast('Tap in the box and paste with the iPad keyboard'); $('#narr').focus(); } };
 $$('#fmt button').forEach(b=>b.onclick=()=>{ S.fmt=b.dataset.f; $$('#fmt button').forEach(x=>x.classList.toggle('on',x===b)); });
 (function(){ const w=$('#wave'); for(let i=0;i<48;i++){ const e=document.createElement('i'); e.style.animationDelay=(i*37%700)/1000+'s'; e.style.animationDuration=(0.7+(i*53%60)/100)+'s'; w.appendChild(e); } })();
@@ -498,7 +505,7 @@ function log(msg,err){ const l=$('#log'); const d=document.createElement('div');
 
 /* Gemini TTS: try the Interactions API first, then the classic generateContent call. */
 async function ttsOnce(text, style, c, model){
-  const voice=CONFIG.voice;
+  const voice=c.voice;
   const attempts=[
     async()=>{
       const r=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':c.key},
@@ -528,7 +535,7 @@ async function tts(text, style, c){
   let lastErr;
   for(const m of models){
     for(let a=0;a<3;a++){
-      try{ const out=await ttsOnce(text,style,c,m); if(m!==c.model) { store.set('cfg.model',m); log('Using model '+m); } return out; }
+      try{ const out=await ttsOnce(text,style,c,m); return out; }
       catch(e){ lastErr=e; if(e.fatal) throw e; if(e.retry){ await new Promise(r=>setTimeout(r,1500*(a+1))); continue; } break; }
     }
   }
@@ -549,7 +556,7 @@ function needSetup(){ const c=cfg(); if(!c.key){ toast('Add your Gemini API key 
 function setBusy(b){ S.busy=b; $('#wave').classList.toggle('live',b); $('#btnGen').disabled=b; $('#btnTest').disabled=b; }
 
 $('#btnTest').onclick=async()=>{
-  if(needSetup()) return; setBusy(true); $('#log').textContent=''; log('Testing voice '+CONFIG.voice+' with '+cfg().model+'…');
+  if(needSetup()) return; setBusy(true); $('#log').textContent=''; log('Testing voice '+cfg().voice+' with '+cfg().model+'…');
   try{ const r=await tts('This is Project Management Insights. Here is a short voice test.',$('#style').value,cfg()); const url=URL.createObjectURL(wavBlob(r.pcm,r.sr)); const p=$('#player'); p.hidden=false; p.src=url; p.play().catch(()=>{}); log('Voice works.'); }
   catch(e){ log('Voice test failed: '+e.message,true); } setBusy(false);
 };
@@ -600,9 +607,9 @@ $('#btnAnother').onclick=()=>{ S.ep=null; S.audio=null; S.maxStep=1; $('#player'
 
 /* ---------- settings ---------- */
 const dlg=$('#dlg');
-function openSettings(){ const c=cfg(); $('#sWorker').value=c.worker; $('#sPass').value=c.pass; $('#sKey').value=c.key; $('#sModel').value=c.model; $('#voiceName').textContent=CONFIG.voice; dlg.showModal(); }
+function openSettings(){ const c=cfg(); $('#sWorker').value=c.worker; $('#sPass').value=c.pass; $('#sKey').value=c.key; dlg.showModal(); }
 $('#btnSettings').onclick=openSettings; $('#btnClose').onclick=()=>dlg.close();
-$('#btnSave').onclick=()=>{ store.set('cfg.worker',$('#sWorker').value.trim()); store.set('cfg.pass',$('#sPass').value); store.set('cfg.key',$('#sKey').value.trim()); store.set('cfg.model',$('#sModel').value.trim()||CONFIG.defaultModel); dlg.close(); loadEpisodes(true); };
+$('#btnSave').onclick=()=>{ store.set('cfg.worker',$('#sWorker').value.trim()); store.set('cfg.pass',$('#sPass').value); store.set('cfg.key',$('#sKey').value.trim()); dlg.close(); loadEpisodes(true); };
 $('#btnRefresh').onclick=()=>loadEpisodes(true);
 $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 
