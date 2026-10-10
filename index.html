@@ -169,6 +169,13 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translate(-50%,30px);background:var(--ink);color:var(--bg);padding:12px 20px;border-radius:99px;opacity:0;transition:.3s;z-index:60;font-weight:600;pointer-events:none}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 .help{font-size:14px;color:var(--muted);margin:0}
+input[type=number]{width:100%;min-height:52px;padding:12px 16px;border-radius:14px;border:1px solid var(--line);background:var(--card-solid);outline:none}
+input[type=range]{width:100%;accent-color:var(--accent);min-height:44px}
+.mrow{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line)}
+.mrow .mname{color:var(--muted);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.mrow .check{padding:0;border:0;min-height:0;min-width:96px}
+.mset{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:16px;padding-top:16px}
+textarea.tpl{min-height:46vh}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
@@ -204,12 +211,19 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
 
     <!-- 2 -->
     <section class="panel" id="p2">
-      <div class="ph"><div><h2>Your Claude prompt</h2><p>Script Prompt from Notion, followed by title, description and key concepts. Copy it, paste it into Claude, then come back with the narration.</p></div></div>
+      <div class="ph"><div><h2>Your Claude prompt</h2><p>Built from your prompt template plus this episode's title, description and key concepts. Copy it, paste it into Claude, then come back with the narration.</p></div></div>
       <div class="card">
         <div class="sum">
           <div><div class="meta row" id="sumMeta"></div><h3 id="sumTitle"></h3><p id="sumDesc" class="help"></p></div>
           <div><div class="lbl">Key concepts</div><div class="kc" id="sumKc" style="margin-top:10px"></div><div class="stat" id="sumStat"></div></div>
         </div>
+      </div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between;gap:16px">
+          <div><div class="lbl">Prompt template</div><p class="help" style="margin-top:4px">Your global template is used for every episode. You can still switch to the episode's own Script Prompt from Notion.</p></div>
+          <div class="seg" id="tplMode"><button data-m="global" class="on">My global template</button><button data-m="episode">Notion template</button></div>
+        </div>
+        <div class="row" style="margin-top:14px"><button class="btn" id="btnEditTpl">Edit global template</button></div>
       </div>
       <div class="card">
         <div id="promptWarn"></div>
@@ -226,7 +240,7 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
 
     <!-- 3 -->
     <section class="panel" id="p3">
-      <div class="ph"><div><h2>Narration to audio</h2><p>Paste the narration Claude wrote. Gemini reads it aloud in one fixed voice.</p></div></div>
+      <div class="ph"><div><h2>Narration to audio</h2><p>Paste the narration Claude wrote. Gemini reads it aloud in the voice you choose.</p></div></div>
       <div class="card">
         <div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="lbl">Narration script</div><button class="btn copy ghost" id="btnPaste">Paste from clipboard</button></div>
         <textarea id="narr" rows="12" placeholder="Paste the narration script here"></textarea>
@@ -241,6 +255,19 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
           <div class="field" style="flex:1 1 320px"><label for="style">Delivery style</label><input type="text" id="style"></div>
           <div class="field"><span class="lbl">File format</span><div class="seg" id="fmt"><button data-f="mp3" class="on">MP3</button><button data-f="wav">WAV</button></div></div>
         </div>
+        <div class="lbl" style="margin-top:26px">Intro and outro music</div>
+        <div id="music">
+          <div class="mrow"><label class="check"><input type="checkbox" id="introOn"> Intro</label><span class="mname" id="introName">No file chosen</span><span class="row" style="gap:8px"><button class="btn copy" id="introPick">Choose file</button><button class="btn copy ghost" id="introClear">Remove</button></span></div>
+          <div class="mrow"><label class="check"><input type="checkbox" id="outroOn"> Outro</label><span class="mname" id="outroName">No file chosen</span><span class="row" style="gap:8px"><button class="btn copy" id="outroPick">Choose file</button><button class="btn copy ghost" id="outroClear">Remove</button></span></div>
+          <div class="mset">
+            <div class="field"><label for="ovI">Voice starts before intro ends (s)</label><input type="number" id="ovI" min="0" max="30" step="0.5" inputmode="decimal"></div>
+            <div class="field"><label for="ovO">Outro starts before voice ends (s)</label><input type="number" id="ovO" min="0" max="30" step="0.5" inputmode="decimal"></div>
+            <div class="field"><label for="vol">Music volume <span id="volTxt"></span></label><input type="range" id="vol" min="10" max="100" step="5"></div>
+          </div>
+          <p class="help" style="margin-top:8px">Music is mixed into the final file. The intro fades out as the voice comes in, and the outro fades in as the voice ends. With music the file is stereo, so MP3 is recommended.</p>
+        </div>
+        <input type="file" id="introFile" accept="audio/*,.mp3,.m4a,.wav,.aac" hidden>
+        <input type="file" id="outroFile" accept="audio/*,.mp3,.m4a,.wav,.aac" hidden>
         <div class="wave" id="wave" aria-hidden="true"></div>
         <div class="prog"><div id="bar"></div></div>
         <div class="row">
@@ -298,6 +325,12 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
   <p class="help">Voice and model are chosen on the Audio step.</p>
   <div class="row"><button class="btn primary" id="btnSave">Save and load episodes</button><button class="btn ghost" id="btnClose">Close</button></div>
 </div></dialog>
+<dialog id="dlgTpl"><div class="sheet">
+  <h2 style="font-size:28px">Global prompt template</h2>
+  <p class="help">Used for every episode. Write it in plain text. These placeholders are replaced for each episode: <b>{{title}}</b>, <b>{{description}}</b>, <b>{{keyConcepts}}</b>, <b>{{code}}</b>, <b>{{series}}</b>. If you use none of them, the title, description and key concepts are added at the end.</p>
+  <textarea id="tplText" class="tpl mono" spellcheck="false"></textarea>
+  <div class="row"><button class="btn primary" id="tplSave">Save template</button><button class="btn" id="tplReset">Reset to default</button><button class="btn ghost" id="tplCancel">Cancel</button></div>
+</div></dialog>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -313,6 +346,7 @@ const CONFIG = {
   weekday: 4,                            // default publish day: Thursday
   placeholder: '<episode title + description>',
 };
+const DEFAULT_TEMPLATE = "You are writing the narration script for one episode of the podcast Project Management Insights. The listener is a working project manager who is listening on a walk or a commute.\n\nEpisode title: {{title}}\n\nEpisode description:\n{{description}}\n\nKey concepts to cover:\n{{keyConcepts}}\n\nWrite the narration so it is easy to follow by ear:\n- Build the episode around one clear idea. Do not try to cover everything.\n- Open with a concrete situation or a question, then get to the point quickly.\n- Use short sentences and plain words. Explain any jargon the first time it appears.\n- Keep paragraphs to three sentences at most.\n- Cover each key concept once, in simple terms, with one practical example.\n- End with one thing the listener can do this week.\n- No introduction, no sign-off, no headings, no lists, no stage directions.\n- Target length: 4 to 5 minutes when read aloud, about 600 to 750 words.\n- Do not use em dashes. Avoid filler and cliches such as overall, leverage, tapestry, embrace and resonate.\n\nReturn only the narration text, ready to be read aloud.";
 const SERIES_COLORS = {'Project Files':'#8b5cf6','People Side':'#ec4899','PM in Practice':'#3b82f6','PM in the AI Era':'#f97316','Failure Files':'#ef4444','First 90':'#22c55e','Stakeholder Room':'#eab308','Cost Of':'#a16207','Frameworks Decoded':'#64748b','Estimation Files':'#14b8a6','Standalone':'#94a3b8'};
 
 /* ---------- helpers ---------- */
@@ -331,16 +365,16 @@ const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replac
 const cleanTitle = (t='') => t.replace(/^\s*\d+[.:]\s*/, '').trim();
 
 /* ---------- pure logic (also exposed for tests) ---------- */
-function buildPrompt(ep){
-  const parts = [];
-  parts.push('Episode title: ' + (ep.title || '').trim());
-  parts.push('Episode description:\n' + ((ep.description || '').trim() || '(none)'));
-  parts.push('Key concepts:\n' + ((ep.keyConcepts || '').trim() || '(none)'));
-  const block = parts.join('\n\n');
-  const tpl = (ep.scriptPrompt || '').trim();
+function buildPrompt(ep, tplOverride){
+  const val = (v) => ((v || '').trim() || '(none)');
+  const map = { title:(ep.title || '').trim(), description:val(ep.description), keyConcepts:val(ep.keyConcepts), code:ep.code || '', series:ep.series || '' };
+  const block = 'Episode title: ' + map.title + '\n\nEpisode description:\n' + map.description + '\n\nKey concepts:\n' + map.keyConcepts;
+  const tpl = (tplOverride !== undefined ? tplOverride : (ep.scriptPrompt || '')).trim();
   if (!tpl) return block;
-  if (tpl.includes(CONFIG.placeholder)) return tpl.split(CONFIG.placeholder).join(block);
-  return tpl + '\n\n' + block;
+  let used = false;
+  let out = tpl.replace(/\{\{\s*(title|description|keyConcepts|code|series)\s*\}\}/g, (m, k) => { used = true; return map[k]; });
+  if (out.includes(CONFIG.placeholder)) { out = out.split(CONFIG.placeholder).join(block); used = true; }
+  return used ? out : out + '\n\n' + block;
 }
 function cleanNarration(t){
   return t.replace(/\r/g,'').split('\n').map(l => l.replace(/^\s{0,3}#{1,6}\s+/,'').replace(/\*\*(.+?)\*\*/g,'$1').replace(/(^|\s)\*(?!\s)(.+?)\*(?=\s|$|[.,;!?])/g,'$1$2')).join('\n').replace(/\n{3,}/g,'\n\n').trim();
@@ -391,11 +425,18 @@ function wavBlob(pcm, sr){
   dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true); w(36,'data'); dv.setUint32(40,n,true);
   new Int16Array(buf,44).set(pcm); return new Blob([buf],{type:'audio/wav'});
 }
+function wavStereo(L, R, sr){
+  const frames=L.length, n=frames*4, buf=new ArrayBuffer(44+n), dv=new DataView(buf);
+  const w=(o,t)=>{ for(let i=0;i<t.length;i++) dv.setUint8(o+i,t.charCodeAt(i)); };
+  w(0,'RIFF'); dv.setUint32(4,36+n,true); w(8,'WAVE'); w(12,'fmt '); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,2,true);
+  dv.setUint32(24,sr,true); dv.setUint32(28,sr*4,true); dv.setUint16(32,4,true); dv.setUint16(34,16,true); w(36,'data'); dv.setUint32(40,n,true);
+  const out=new Int16Array(buf,44); for(let i=0;i<frames;i++){ out[2*i]=L[i]; out[2*i+1]=R[i]; }
+  return new Blob([buf],{type:'audio/wav'});
+}
 function nextWeekday(from=new Date(), wd=CONFIG.weekday){
   const d=new Date(from.getFullYear(), from.getMonth(), from.getDate()); let add=(wd-d.getDay()+7)%7; if(add===0) add=7; d.setDate(d.getDate()+add);
   const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
 }
-window.Studio = {buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 
 /* ---------- state ---------- */
 const S = { episodes:[], series:'All', q:'', ep:null, audio:null, fmt:'mp3', step:1, maxStep:1, busy:false };
@@ -474,11 +515,12 @@ function fillStep2(){
   $('#sumDesc').textContent=e.description||'No description in Notion.';
   const kc=$('#sumKc'); kc.innerHTML=''; (e.keyConcepts||'').split(/[;\n]+/).map(s=>s.trim()).filter(Boolean).forEach(k=>{ const s=document.createElement('span'); s.textContent=k; kc.appendChild(s); });
   if(!kc.children.length) kc.innerHTML='<span style="background:var(--bg2)">None in Notion</span>';
-  const p=buildPrompt(e); $('#promptOut').value=p;
+  const mode=store.get('cfg.tplMode','global'); const tplUsed=mode==='episode'?(e.scriptPrompt||''):getTemplate(); const p=buildPrompt(e,tplUsed); $('#promptOut').value=p;
+  $$('#tplMode button').forEach(b=>b.classList.toggle('on',b.dataset.m===mode)); $('#btnEditTpl').hidden=mode==='episode';
   $('#promptCount').textContent=p.length.toLocaleString()+' characters';
-  const warn=[]; if(!e.scriptPrompt) warn.push('This episode has no Script Prompt in Notion, so the prompt below has only the title, description and key concepts.'); if(!e.description) warn.push('Description is empty.'); if(!e.keyConcepts) warn.push('Key Concepts is empty.');
+  const warn=[]; if(mode==='episode'&&!e.scriptPrompt) warn.push('This episode has no Script Prompt in Notion, so the prompt below has only the title, description and key concepts.'); if(!e.description) warn.push('Description is empty.'); if(!e.keyConcepts) warn.push('Key Concepts is empty.');
   $('#promptWarn').innerHTML=warn.length?'<div class="warn">'+warn.join(' ')+'</div>':'';
-  $('#sumStat').innerHTML='<span>Template <b>'+(e.scriptPrompt?e.scriptPrompt.length.toLocaleString():'0')+'</b> chars</span>';
+  $('#sumStat').innerHTML='<span>'+(mode==='episode'?'Notion template':'Global template')+' <b>'+tplUsed.length.toLocaleString()+'</b> chars</span>';
 }
 $('#btnCopyPrompt').onclick=async()=>{ const ok=await copyText($('#promptOut').value); toast(ok?'Prompt copied. Paste it into Claude.':'Copy failed. Select the text and copy manually.'); };
 $('#btnTo3').onclick=()=>go(3);
@@ -552,6 +594,75 @@ async function mp3Blob(pcm, sr){
   for(let i=0;i<pcm.length;i+=N){ const b=enc.encodeBuffer(pcm.subarray(i,i+N)); if(b.length) out.push(new Uint8Array(b)); if((i/N)%400===0) await new Promise(r=>setTimeout(r)); }
   const f=enc.flush(); if(f.length) out.push(new Uint8Array(f)); return new Blob(out,{type:'audio/mpeg'});
 }
+async function mp3Stereo(L, R, sr){
+  await loadLame(); const enc=new lamejs.Mp3Encoder(2,sr,128), out=[], N=1152;
+  for(let i=0;i<L.length;i+=N){ const b=enc.encodeBuffer(L.subarray(i,i+N),R.subarray(i,i+N)); if(b.length) out.push(new Uint8Array(b)); if((i/N)%400===0) await new Promise(r=>setTimeout(r)); }
+  const f=enc.flush(); if(f.length) out.push(new Uint8Array(f)); return new Blob(out,{type:'audio/mpeg'});
+}
+async function decodeMusic(blob, label){
+  try{
+    const ab=await blob.arrayBuffer(); const Ctx=window.OfflineAudioContext||window.webkitOfflineAudioContext; const ctx=new Ctx(2,44100,44100);
+    return await new Promise((res,rej)=>{ const pr=ctx.decodeAudioData(ab,res,rej); if(pr&&pr.catch) pr.catch(rej); });
+  }catch(e){ throw new Error('Could not read the '+label+' file. Try an MP3, M4A or WAV file.'); }
+}
+// Mixes narration (mono Int16 at sr) with optional intro/outro into stereo 44.1 kHz Int16 arrays.
+async function mixTracks(pcm, sr, opt){
+  const OUT=44100;
+  const intro=opt.intro?await decodeMusic(opt.intro.blob,'intro'):null;
+  const outro=opt.outro?await decodeMusic(opt.outro.blob,'outro'):null;
+  const narrLen=pcm.length/sr, introLen=intro?intro.duration:0;
+  const oi=intro?Math.min(Math.max(0,opt.introOverlap),introLen):0, oo=outro?Math.min(Math.max(0,opt.outroOverlap),outro.duration,narrLen):0;
+  const narrStart=intro?Math.max(0,introLen-oi):0, narrEnd=narrStart+narrLen;
+  const outroStart=outro?Math.max(narrEnd-oo,narrStart):narrEnd;
+  const total=outro?Math.max(narrEnd,outroStart+outro.duration):narrEnd;
+  const N=Math.ceil(total*OUT)+1, L=new Int16Array(N), R=new Int16Array(N), vol=opt.vol;
+  const ch=(b,i)=>b.getChannelData(Math.min(i,b.numberOfChannels-1));
+  const iL=intro&&ch(intro,0), iR=intro&&ch(intro,1), oL=outro&&ch(outro,0), oR=outro&&ch(outro,1);
+  const outroIdx=Math.round(outroStart*OUT);
+  for(let i=0;i<N;i++){
+    const t=i/OUT; let l=0, r=0;
+    const nt=(t-narrStart)*sr;
+    if(nt>=0 && nt<pcm.length-1){ const k=Math.floor(nt), f=nt-k; l=r=(pcm[k]*(1-f)+pcm[k+1]*f)/32768; }
+    if(intro && i<iL.length && t<introLen){ let g=vol; if(oi>0 && t>introLen-oi) g*=(introLen-t)/oi; l+=iL[i]*g; r+=iR[i]*g; }
+    if(outro && i>=outroIdx){ const k=i-outroIdx; if(k<oL.length){ const rel=k/OUT; let g=vol; if(oo>0 && rel<oo) g*=rel/oo; const remain=outro.duration-rel; if(remain<3) g*=Math.max(0,remain/3); l+=oL[k]*g; r+=oR[k]*g; } }
+    l=l>1?1:l<-1?-1:l; r=r>1?1:r<-1?-1:r;
+    L[i]=l<0?l*32768:l*32767; R[i]=r<0?r*32768:r*32767;
+    if(i%1500000===0) await new Promise(res=>setTimeout(res));
+  }
+  return {L,R,sr:OUT,seconds:total};
+}
+const music={intro:null,outro:null};
+function musicOptions(){
+  const num=(k,d)=>{ const v=Number(store.get(k,d)); return isFinite(v)?v:d; };
+  return { intro:(store.get('cfg.introOn',true)&&music.intro)?music.intro:null, outro:(store.get('cfg.outroOn',true)&&music.outro)?music.outro:null,
+           introOverlap:num('cfg.introOverlap',3), outroOverlap:num('cfg.outroOverlap',3), vol:Math.max(0.1,Math.min(1,num('cfg.musicVol',100)/100)) };
+}
+function paintMusic(){
+  ['intro','outro'].forEach(k=>{ $('#'+k+'Name').textContent=music[k]?music[k].name:'No file chosen'; $('#'+k+'On').checked=!!(music[k]&&store.get('cfg.'+k+'On',true)); $('#'+k+'On').disabled=!music[k]; $('#'+k+'Clear').hidden=!music[k]; });
+  $('#ovI').value=store.get('cfg.introOverlap',3); $('#ovO').value=store.get('cfg.outroOverlap',3);
+  const v=store.get('cfg.musicVol',100); $('#vol').value=v; $('#volTxt').textContent=v+'%';
+}
+async function initMusic(){
+  for(const k of ['intro','outro']){ const rec=await idb.get('music.'+k); if(rec&&rec.blob) music[k]=rec; }
+  paintMusic();
+}
+['intro','outro'].forEach(k=>{
+  $('#'+k+'Pick').onclick=()=>$('#'+k+'File').click();
+  $('#'+k+'File').onchange=async(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; music[k]={blob:f,name:f.name}; await idb.put('music.'+k,{blob:f,name:f.name}); store.set('cfg.'+k+'On',true); paintMusic(); toast(k==='intro'?'Intro saved':'Outro saved'); e.target.value=''; };
+  $('#'+k+'Clear').onclick=async()=>{ music[k]=null; await idb.put('music.'+k,null); paintMusic(); };
+  $('#'+k+'On').onchange=()=>{ store.set('cfg.'+k+'On',$('#'+k+'On').checked); };
+});
+$('#ovI').addEventListener('change',()=>store.set('cfg.introOverlap',Number($('#ovI').value)||0));
+$('#ovO').addEventListener('change',()=>store.set('cfg.outroOverlap',Number($('#ovO').value)||0));
+$('#vol').addEventListener('input',()=>{ store.set('cfg.musicVol',Number($('#vol').value)); $('#volTxt').textContent=$('#vol').value+'%'; });
+
+function getTemplate(){ const t=store.get('cfg.template',null); return (typeof t==='string'&&t.trim())?t:DEFAULT_TEMPLATE; }
+$$('#tplMode button').forEach(b=>b.onclick=()=>{ store.set('cfg.tplMode',b.dataset.m); if(S.ep) fillStep2(); else $$('#tplMode button').forEach(x=>x.classList.toggle('on',x===b)); });
+$('#btnEditTpl').onclick=()=>{ $('#tplText').value=getTemplate(); $('#dlgTpl').showModal(); };
+$('#tplCancel').onclick=()=>$('#dlgTpl').close();
+$('#tplReset').onclick=()=>{ $('#tplText').value=DEFAULT_TEMPLATE; };
+$('#tplSave').onclick=()=>{ const v=$('#tplText').value.trim(); store.set('cfg.template',v&&v!==DEFAULT_TEMPLATE?v:null); $('#dlgTpl').close(); if(S.ep) fillStep2(); toast('Template saved'); };
+
 function needSetup(){ const c=cfg(); if(!c.key){ toast('Add your Gemini API key in settings'); openSettings(); return true; } return false; }
 function setBusy(b){ S.busy=b; $('#wave').classList.toggle('live',b); $('#btnGen').disabled=b; $('#btnTest').disabled=b; }
 
@@ -569,8 +680,14 @@ $('#btnGen').onclick=async()=>{
       log('Part '+(i+1)+' of '+chunks.length+'…'); const r=await tts(chunks[i],style,c); parts.push(r.pcm); sr=r.sr;
       $('#bar').style.width=Math.round(((i+1)/chunks.length)*85)+'%';
     }
-    const pcm=concatPcm(parts,sr); let blob,ext;
-    if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); blob=await mp3Blob(pcm,sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavBlob(pcm,sr); ext='wav'; } }
+    const pcm=concatPcm(parts,sr); let blob,ext; const mo=musicOptions();
+    if(mo.intro||mo.outro){
+      log('Mixing '+[mo.intro?'intro':'',mo.outro?'outro':''].filter(Boolean).join(' and ')+'…'); $('#bar').style.width='88%';
+      const m=await mixTracks(pcm,sr,mo);
+      if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); blob=await mp3Stereo(m.L,m.R,m.sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavStereo(m.L,m.R,m.sr); ext='wav'; } }
+      else { blob=wavStereo(m.L,m.R,m.sr); ext='wav'; }
+    }
+    else if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); blob=await mp3Blob(pcm,sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavBlob(pcm,sr); ext='wav'; } }
     else { blob=wavBlob(pcm,sr); ext='wav'; }
     $('#bar').style.width='100%'; setAudio(blob,ext,false); idb.put('audio.'+S.ep.id,{blob,ext});
     log('Done. '+(blob.size/1048576).toFixed(1)+' MB.'); toast('Audio ready');
@@ -614,6 +731,8 @@ $('#btnRefresh').onclick=()=>loadEpisodes(true);
 $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 
 /* ---------- start ---------- */
+initMusic();
+window.Studio = {DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 loadEpisodes(false);
 if(!cfg().worker) setTimeout(openSettings,400);
 </script>
