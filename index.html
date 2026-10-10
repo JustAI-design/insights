@@ -308,7 +308,9 @@ textarea.tpl{min-height:46vh}
             <label class="check"><input type="checkbox" data-ck="b"> Uploaded in Spotify for Creators</label>
             <label class="check"><input type="checkbox" data-ck="c"> Title, description and date entered</label>
             <label class="check"><input type="checkbox" data-ck="d"> Scheduled or published</label>
-            <div class="row" style="margin-top:16px"><button class="btn teal" id="btnAnother">Next episode</button></div>
+            <div class="row" style="margin-top:16px"><button class="btn primary" id="btnPublished">Mark as Published in Notion</button></div>
+            <p class="help" id="pubHelp">Sets Status to Published and Published Date to the date above.</p>
+            <div class="row" style="margin-top:12px"><button class="btn teal" id="btnAnother">Next episode</button></div>
           </div>
         </div>
       </div>
@@ -720,6 +722,18 @@ $$('[data-copy]').forEach(b=>b.onclick=async()=>{ const el=$('#'+b.dataset.copy)
 $$('[data-ck]').forEach(i=>i.onchange=()=>{ const ck={...(draft().ck||{})}; ck[i.dataset.ck]=i.checked; saveDraft({ck}); });
 $('#btnDownload').onclick=()=>{ if(!S.audio){ toast('No audio yet'); return; } const a=document.createElement('a'); a.href=S.audio.url; a.download=$('#fileName').textContent; document.body.appendChild(a); a.click(); a.remove(); toast('Download started'); };
 $('#btnShare').onclick=async()=>{ if(!S.audio){ toast('No audio yet'); return; } const f=new File([S.audio.blob],$('#fileName').textContent,{type:S.audio.blob.type}); try{ if(navigator.canShare&&navigator.canShare({files:[f]})) await navigator.share({files:[f],title:S.ep.title}); else toast('Sharing is not supported here. Use Download.'); }catch(e){} };
+$('#btnPublished').onclick=async()=>{
+  const e=S.ep,c=cfg(),date=$('#kDate').value; if(!e) return;
+  if(!date){ toast('Pick a publishing date first'); return; }
+  const b=$('#btnPublished'); b.disabled=true; b.textContent='Updating Notion…';
+  try{
+    const r=await fetch(c.worker+'/publish',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,date})});
+    const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+    S.episodes=S.episodes.filter(x=>x.id!==e.id); store.set('cache.episodes',S.episodes);
+    toast('Marked as Published in Notion'); S.ep=null; S.audio=null; S.maxStep=1; $('#player').hidden=true; $('#player2').hidden=true; $('#narr').value=''; renderChips(); renderEps(); go(1);
+  }catch(err){ toast('Could not update Notion: '+err.message); }
+  b.disabled=false; b.textContent='Mark as Published in Notion';
+};
 $('#btnAnother').onclick=()=>{ S.ep=null; S.audio=null; S.maxStep=1; $('#player').hidden=true; $('#player2').hidden=true; $('#narr').value=''; renderEps(); go(1); };
 
 /* ---------- settings ---------- */
