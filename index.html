@@ -289,8 +289,8 @@ dialog::backdrop{background:#050810a0;backdrop-filter:blur(6px)}
   <h2 style="font-size:28px">Settings</h2>
   <p class="help">Saved only on this iPad. The Gemini key goes straight to Google. Your Notion token stays in the Worker.</p>
   <div class="field"><label for="sWorker">Worker URL</label><input type="url" id="sWorker" placeholder="https://insights-studio-notion.yourname.workers.dev" autocapitalize="off" autocorrect="off"></div>
-  <div class="field"><label for="sPass">Passcode</label><input type="password" id="sPass" autocomplete="off"></div>
-  <div class="field"><label for="sKey">Gemini API key</label><input type="password" id="sKey" autocomplete="off" placeholder="From Google AI Studio"></div>
+  <div class="field"><label for="sPass">Passcode</label><input type="password" id="sPass" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></div>
+  <div class="field"><label for="sKey">Gemini API key</label><input type="password" id="sKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="From Google AI Studio"></div>
   <div class="field"><label for="sModel">Gemini TTS model</label><input type="text" id="sModel" autocapitalize="off" autocorrect="off"></div>
   <p class="help">Voice is fixed to <b id="voiceName"></b>. Change it in the CONFIG block at the top of the script in index.html.</p>
   <div class="row"><button class="btn primary" id="btnSave">Save and load episodes</button><button class="btn ghost" id="btnClose">Close</button></div>
@@ -396,7 +396,8 @@ window.Studio = {buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes
 
 /* ---------- state ---------- */
 const S = { episodes:[], series:'All', q:'', ep:null, audio:null, fmt:'mp3', step:1, maxStep:1, busy:false };
-const cfg = () => ({ worker:(store.get('cfg.worker','')||'').replace(/\/+$/,''), pass:store.get('cfg.pass',''), key:store.get('cfg.key',''), model:store.get('cfg.model',CONFIG.defaultModel)||CONFIG.defaultModel });
+const cleanUrl = u => { u=(u||'').replace(/\s+/g,''); if(u && !/^https?:\/\//i.test(u)) u='https://'+u; return u.replace(/\/+$/,''); };
+const cfg = () => ({ worker:cleanUrl(store.get('cfg.worker','')), pass:(store.get('cfg.pass','')||'').trim(), key:(store.get('cfg.key','')||'').trim(), model:store.get('cfg.model',CONFIG.defaultModel)||CONFIG.defaultModel });
 const draftKey = id => 'draft.' + id;
 const draft = () => (S.ep && store.get(draftKey(S.ep.id), {})) || {};
 const saveDraft = patch => { if(S.ep) store.set(draftKey(S.ep.id), {...draft(), ...patch}); };
@@ -444,12 +445,14 @@ async function loadEpisodes(force){
   if(cached && !force){ S.episodes=cached.filter(valid); renderChips(); renderEps(); }
   if(!c.worker||!c.pass){ $('#connDot').classList.remove('ok'); if(!cached) { renderChips(); renderEps(); } return; }
   if(!cached||force){ box.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>'; }
+  if(!/^[\x20-\x7E]+$/.test(c.pass)){ $('#connDot').classList.remove('ok'); toast('The passcode has a character Safari cannot send. Retype it with plain letters and digits.'); renderChips(); renderEps(); return; }
+  try{ new URL(c.worker); }catch(e){ toast('The Worker URL is not valid. It should look like https://name.account.workers.dev'); renderChips(); renderEps(); return; }
   try{
     const r=await fetch(c.worker+'/episodes',{headers:{'X-Passcode':c.pass}});
     const j=await r.json(); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
     S.episodes=j.episodes.filter(valid).sort((a,b)=>(a.code||'').localeCompare(b.code||'',undefined,{numeric:true}));
     store.set('cache.episodes',S.episodes); $('#connDot').classList.add('ok'); if(force) toast('Episodes updated');
-  }catch(e){ $('#connDot').classList.remove('ok'); toast('Could not reach Notion: '+e.message); }
+  }catch(e){ $('#connDot').classList.remove('ok'); toast('Could not reach Notion: '+e.message+' (check Worker URL and passcode in settings)'); }
   renderChips(); renderEps();
 }
 function valid(e){ return e.status!=='Published' && e.code && e.title && e.title!=='Episode'; }
