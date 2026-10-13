@@ -254,6 +254,7 @@ textarea.tpl{min-height:46vh}
         <div class="row" style="gap:22px;align-items:flex-end;margin-top:16px">
           <div class="field" style="flex:1 1 320px"><label for="style">Delivery style</label><input type="text" id="style"></div>
           <div class="field"><span class="lbl">File format</span><div class="seg" id="fmt"><button data-f="mp3" class="on">MP3</button><button data-f="wav">WAV</button></div></div>
+          <div class="field"><label class="check"><input type="checkbox" id="enh"> Voice clarity boost</label><p class="help">Removes low rumble, lifts the high frequencies the voice model leaves dull, and levels the volume. Turn off if it sounds too bright.</p></div>
         </div>
         <div class="lbl" style="margin-top:26px">Intro and outro music</div>
         <div id="music">
@@ -591,13 +592,44 @@ function concatPcm(parts, sr){
 }
 let lameLoad=null;
 function loadLame(){ if(window.lamejs) return Promise.resolve(); if(lameLoad) return lameLoad; lameLoad=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js'; s.onload=res; s.onerror=()=>rej(new Error('MP3 encoder did not load')); document.head.appendChild(s); }); return lameLoad; }
+
+function biquad(x, type, f0, sr, gainDb, Q){
+  const A=Math.pow(10,(gainDb||0)/40), w=2*Math.PI*f0/sr, cw=Math.cos(w), sw=Math.sin(w), al=sw/(2*Q);
+  let b0,b1,b2,a0,a1,a2;
+  if(type==='hp'){ b0=(1+cw)/2; b1=-(1+cw); b2=(1+cw)/2; a0=1+al; a1=-2*cw; a2=1-al; }
+  else if(type==='peak'){ b0=1+al*A; b1=-2*cw; b2=1-al*A; a0=1+al/A; a1=-2*cw; a2=1-al/A; }
+  else { const s=2*Math.sqrt(A)*al; b0=A*((A+1)+(A-1)*cw+s); b1=-2*A*((A-1)+(A+1)*cw); b2=A*((A+1)+(A-1)*cw-s); a0=(A+1)-(A-1)*cw+s; a1=2*((A-1)-(A+1)*cw); a2=(A+1)-(A-1)*cw-s; }
+  b0/=a0; b1/=a0; b2/=a0; a1/=a0; a2/=a0;
+  let x1=0,x2=0,y1=0,y2=0; const y=new Float32Array(x.length);
+  for(let i=0;i<x.length;i++){ const v=x[i], o=b0*v+b1*x1+b2*x2-a1*y1-a2*y2; x2=x1; x1=v; y2=y1; y1=o; y[i]=o; }
+  return y;
+}
+function enhanceVoice(pcm, sr){
+  let x=new Float32Array(pcm.length); for(let i=0;i<pcm.length;i++) x[i]=pcm[i]/32768;
+  x=biquad(x,'hp',80,sr,0,0.707);
+  x=biquad(x,'peak',3200,sr,2.5,0.9);
+  x=biquad(x,'hs',6000,sr,5,0.7);
+  // gentle level: soft-knee compression on a smoothed envelope, then peak normalise to -1 dB
+  let env=0; const at=Math.exp(-1/(0.005*sr)), rl=Math.exp(-1/(0.12*sr)), thr=0.18, ratio=2.5;
+  for(let i=0;i<x.length;i++){ const a=Math.abs(x[i]); env=a>env?at*env+(1-at)*a:rl*env+(1-rl)*a; if(env>thr){ const g=Math.pow(env/thr,1/ratio-1); x[i]*=g; } }
+  let pk=0; for(let i=0;i<x.length;i++){ const a=Math.abs(x[i]); if(a>pk) pk=a; }
+  const gain=pk>0?Math.min(4,0.89/pk):1; const out=new Int16Array(x.length);
+  for(let i=0;i<x.length;i++){ const v=x[i]*gain; out[i]=Math.max(-32768,Math.min(32767,Math.round(v*32767))); }
+  return out;
+}
+function upsampleTo44(pcm, sr){
+  if(sr===44100) return {pcm,sr};
+  const n=Math.floor(pcm.length*44100/sr), o=new Int16Array(n), r=sr/44100;
+  for(let i=0;i<n;i++){ const t=i*r, k=Math.floor(t), f=t-k, a=pcm[k], b=pcm[Math.min(k+1,pcm.length-1)]; o[i]=a+(b-a)*f; }
+  return {pcm:o,sr:44100};
+}
 async function mp3Blob(pcm, sr){
-  await loadLame(); const enc=new lamejs.Mp3Encoder(1,sr,96), out=[], N=1152;
+  await loadLame(); const enc=new lamejs.Mp3Encoder(1,sr,160), out=[], N=1152;
   for(let i=0;i<pcm.length;i+=N){ const b=enc.encodeBuffer(pcm.subarray(i,i+N)); if(b.length) out.push(new Uint8Array(b)); if((i/N)%400===0) await new Promise(r=>setTimeout(r)); }
   const f=enc.flush(); if(f.length) out.push(new Uint8Array(f)); return new Blob(out,{type:'audio/mpeg'});
 }
 async function mp3Stereo(L, R, sr){
-  await loadLame(); const enc=new lamejs.Mp3Encoder(2,sr,128), out=[], N=1152;
+  await loadLame(); const enc=new lamejs.Mp3Encoder(2,sr,192), out=[], N=1152;
   for(let i=0;i<L.length;i+=N){ const b=enc.encodeBuffer(L.subarray(i,i+N),R.subarray(i,i+N)); if(b.length) out.push(new Uint8Array(b)); if((i/N)%400===0) await new Promise(r=>setTimeout(r)); }
   const f=enc.flush(); if(f.length) out.push(new Uint8Array(f)); return new Blob(out,{type:'audio/mpeg'});
 }
@@ -639,7 +671,7 @@ function musicOptions(){
   return { intro:(store.get('cfg.introOn',true)&&music.intro)?music.intro:null, outro:(store.get('cfg.outroOn',true)&&music.outro)?music.outro:null,
            introOverlap:num('cfg.introOverlap',3), outroOverlap:num('cfg.outroOverlap',3), vol:Math.max(0.1,Math.min(1,num('cfg.musicVol',100)/100)) };
 }
-function paintMusic(){
+function paintMusic(){ $('#enh').checked=!!store.get('cfg.enh',true);
   ['intro','outro'].forEach(k=>{ $('#'+k+'Name').textContent=music[k]?music[k].name:'No file chosen'; $('#'+k+'On').checked=!!(music[k]&&store.get('cfg.'+k+'On',true)); $('#'+k+'On').disabled=!music[k]; $('#'+k+'Clear').hidden=!music[k]; });
   $('#ovI').value=store.get('cfg.introOverlap',3); $('#ovO').value=store.get('cfg.outroOverlap',3);
   const v=store.get('cfg.musicVol',100); $('#vol').value=v; $('#volTxt').textContent=v+'%';
@@ -656,6 +688,7 @@ async function initMusic(){
 });
 $('#ovI').addEventListener('change',()=>store.set('cfg.introOverlap',Number($('#ovI').value)||0));
 $('#ovO').addEventListener('change',()=>store.set('cfg.outroOverlap',Number($('#ovO').value)||0));
+$('#enh').addEventListener('change',()=>store.set('cfg.enh',$('#enh').checked));
 $('#vol').addEventListener('input',()=>{ store.set('cfg.musicVol',Number($('#vol').value)); $('#volTxt').textContent=$('#vol').value+'%'; });
 
 function getTemplate(){ const t=store.get('cfg.template',null); return (typeof t==='string'&&t.trim())?t:DEFAULT_TEMPLATE; }
@@ -682,14 +715,14 @@ $('#btnGen').onclick=async()=>{
       log('Part '+(i+1)+' of '+chunks.length+'…'); const r=await tts(chunks[i],style,c); parts.push(r.pcm); sr=r.sr;
       $('#bar').style.width=Math.round(((i+1)/chunks.length)*85)+'%';
     }
-    const pcm=concatPcm(parts,sr); let blob,ext; const mo=musicOptions();
+    let pcm=concatPcm(parts,sr); let blob,ext; if(store.get('cfg.enh',true)){ log('Improving voice clarity…'); pcm=enhanceVoice(pcm,sr); } const mo=musicOptions();
     if(mo.intro||mo.outro){
       log('Mixing '+[mo.intro?'intro':'',mo.outro?'outro':''].filter(Boolean).join(' and ')+'…'); $('#bar').style.width='88%';
       const m=await mixTracks(pcm,sr,mo);
       if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); blob=await mp3Stereo(m.L,m.R,m.sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavStereo(m.L,m.R,m.sr); ext='wav'; } }
       else { blob=wavStereo(m.L,m.R,m.sr); ext='wav'; }
     }
-    else if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); blob=await mp3Blob(pcm,sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavBlob(pcm,sr); ext='wav'; } }
+    else if(S.fmt==='mp3'){ try{ log('Encoding MP3…'); const u=upsampleTo44(pcm,sr); blob=await mp3Blob(u.pcm,u.sr); ext='mp3'; }catch(e){ log(e.message+'. Using WAV instead.',true); blob=wavBlob(pcm,sr); ext='wav'; } }
     else { blob=wavBlob(pcm,sr); ext='wav'; }
     $('#bar').style.width='100%'; setAudio(blob,ext,false); idb.put('audio.'+S.ep.id,{blob,ext});
     log('Done. '+(blob.size/1048576).toFixed(1)+' MB.'); toast('Audio ready');
@@ -746,7 +779,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 
 /* ---------- start ---------- */
 initMusic();
-window.Studio = {DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
+window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 loadEpisodes(false);
 if(!cfg().worker) setTimeout(openSettings,400);
 </script>
