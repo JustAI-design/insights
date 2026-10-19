@@ -296,11 +296,6 @@ details.part textarea{margin-top:10px}
         <audio id="player" controls hidden></audio>
         <audio id="partPlayer" controls hidden style="margin-top:10px"></audio>
       </div>
-      <div class="card" id="partsCard" hidden>
-        <div class="lbl" style="margin-bottom:6px">Audio parts</div>
-        <p class="help" style="margin-bottom:10px">If one part sounds off, open it, edit the wording if you like, and regenerate only that part. The full file is rebuilt automatically.</p>
-        <div id="partsList"></div>
-      </div>
     </section>
 
     <!-- 4 -->
@@ -387,7 +382,7 @@ const CONFIG = {
   defaultModel: 'gemini-3.8-flash-tts',  // newest Gemini TTS model; change in Settings if Google renames it
   fallbackModels: [],                    // your model choice is used as selected
   defaultStyle: 'Warm, calm, confident podcast narrator. Natural conversational pace with short pauses between paragraphs.',
-  maxChunkChars: 2800,
+  maxChunkChars: 1600,
   gapMs: 350,
   wordsPerMinute: 150,
   weekday: 4,                            // default publish day: Thursday
@@ -802,7 +797,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.0.1 · 20 Oct 2026';
+const VERSION = '2.0.2 · 21 Oct 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -920,32 +915,9 @@ function runCheck(){
 }
 $('#btnFix').onclick=()=>{ $('#narr').value=fixScript($('#narr').value); saveDraft({narration:$('#narr').value}); updateCounts(); runCheck(); toast('Cleaned up'); };
 $('#narr').addEventListener('input',()=>{ clearTimeout(runCheck.t); runCheck.t=setTimeout(runCheck,250); });
-const _fillStep3=fillStep3; fillStep3=function(){ _fillStep3(); runCheck(); clearParts(); };
+const _fillStep3=fillStep3; fillStep3=function(){ _fillStep3(); runCheck(); };
 
-/* parts: preview, play, redo */
 S.parts=[];
-function clearParts(){ S.parts=[]; $('#partsCard').hidden=true; $('#partsList').innerHTML=''; const pp=$('#partPlayer'); pp.hidden=true; pp.removeAttribute('src'); }
-function paintParts(){
-  const box=$('#partsList'); box.innerHTML=''; $('#partsCard').hidden=!S.parts.length;
-  S.parts.forEach((p,i)=>{
-    const d=document.createElement('details'); d.className='part';
-    const s=document.createElement('summary'); const dur=p.pcm?(p.pcm.length/p.sr).toFixed(0)+' s':'…';
-    s.innerHTML='<b>Part '+(i+1)+'</b> <span class="help"></span>'; s.querySelector('span').textContent=dur+' · '+p.text.slice(0,70).replace(/\s+/g,' ')+'…'; d.appendChild(s);
-    const ta=document.createElement('textarea'); ta.rows=5; ta.value=p.text; ta.oninput=()=>{ p.edit=ta.value; }; d.appendChild(ta);
-    const row=document.createElement('div'); row.className='row'; row.style.marginTop='10px';
-    const play=document.createElement('button'); play.className='btn copy'; play.textContent='Play'; play.onclick=()=>{ if(!p.pcm) return; const pp=$('#partPlayer'); pp.hidden=false; pp.src=URL.createObjectURL(wavBlob(p.pcm,p.sr)); pp.play().catch(()=>{}); };
-    const redo=document.createElement('button'); redo.className='btn copy primary'; redo.textContent='Regenerate this part'; redo.onclick=()=>redoPart(i);
-    row.append(play,redo); d.appendChild(row); box.appendChild(d);
-  });
-}
-async function redoPart(i){
-  if(S.busy||needSetup()) return; const p=S.parts[i]; const txt=(p.edit!==undefined?p.edit:p.text).trim(); if(!txt) return;
-  setBusy(true); $('#log').textContent=''; log('Regenerating part '+(i+1)+'…'); $('#bar').style.width='20%';
-  try{ const r=await tts(txt,$('#style').value.trim()||CONFIG.defaultStyle,cfg()); p.text=txt; p.edit=undefined; p.pcm=r.pcm; p.sr=r.sr; p.sig=ttsSig(); await finalize(); paintParts(); $('#bar').style.width='100%'; }
-  catch(e){ log('Stopped: '+e.message,true); $('#bar').style.width='0'; }
-  setBusy(false);
-}
-function ttsSig(){ const c=cfg(); return c.voice+'|'+c.model+'|'+($('#style').value.trim()||CONFIG.defaultStyle); }
 async function finalize(){
   const sr=S.parts[0].sr; let pcm=concatPcm(S.parts.map(p=>p.pcm),sr), blob, ext;
   if(store.get('cfg.enh',true)){ log('Improving voice clarity…'); pcm=enhanceVoice(pcm,sr); }
@@ -961,20 +933,29 @@ async function finalize(){
   $('#bar').style.width='100%'; setAudio(blob,ext,false); idb.put('audio.'+S.ep.id,{blob,ext});
   log('Done. '+(blob.size/1048576).toFixed(1)+' MB.'); toast('Audio ready');
 }
+/* repeated-section guard: a repeat adds audio, so a part much longer than its text should be is retried */
+function expectedSecs(text){ return wordCount(text)/CONFIG.wordsPerMinute*60; }
+async function ttsGuarded(text,style,c,label){
+  let best=await tts(text,style,c); const exp=expectedSecs(text);
+  for(let k=0;k<2;k++){
+    const dur=best.pcm.length/best.sr; if(dur<=exp*1.3+3) break;
+    log(label+' is '+dur.toFixed(0)+' s but the text should take about '+exp.toFixed(0)+' s. It may contain a repeated section, trying again…',true);
+    const r=await tts(text,style,c); if(r.pcm.length<best.pcm.length) best=r;
+  }
+  const d=best.pcm.length/best.sr; if(d>exp*1.3+3) log(label+' still looks long ('+d.toFixed(0)+' s vs about '+exp.toFixed(0)+' s). Listen to the join before publishing.',true);
+  return best;
+}
 $('#btnGen').onclick=async()=>{
   if(needSetup()) return; const text=cleanNarration($('#narr').value); if(!text){ toast('Paste the narration first'); return; }
-  const c=cfg(), style=$('#style').value.trim()||CONFIG.defaultStyle, chunks=chunkText(text), sig=ttsSig(), old=S.parts;
-  S.parts=chunks.map(t=>{ const o=old.find(p=>p.text===t&&p.pcm&&p.sig===sig); return o||{text:t,pcm:null,sr:24000,sig}; });
-  setBusy(true); $('#log').textContent=''; $('#bar').style.width='2%'; $('#btnTo4').disabled=true; $('#player').hidden=true;
+  const c=cfg(), style=$('#style').value.trim()||CONFIG.defaultStyle, chunks=chunkText(text);
+  S.parts=[]; setBusy(true); $('#log').textContent=''; $('#bar').style.width='2%'; $('#btnTo4').disabled=true; $('#player').hidden=true;
   try{
-    for(let i=0;i<S.parts.length;i++){
-      const p=S.parts[i];
-      if(!p.pcm){ log('Part '+(i+1)+' of '+S.parts.length+'…'); const r=await tts(p.text,style,c); p.pcm=r.pcm; p.sr=r.sr; p.sig=sig; }
-      else log('Part '+(i+1)+' of '+S.parts.length+' kept from before.');
-      $('#bar').style.width=Math.round(((i+1)/S.parts.length)*85)+'%';
+    for(let i=0;i<chunks.length;i++){
+      log('Part '+(i+1)+' of '+chunks.length+'…'); const r=await ttsGuarded(chunks[i],style,c,'Part '+(i+1)); S.parts.push({text:chunks[i],pcm:r.pcm,sr:r.sr});
+      $('#bar').style.width=Math.round(((i+1)/chunks.length)*85)+'%';
     }
-    await finalize(); paintParts();
-  }catch(e){ log('Stopped: '+e.message+(S.parts.some(p=>p.pcm)?' Tap Generate again to continue from where it stopped.':''),true); $('#bar').style.width='0'; paintParts(); }
+    await finalize();
+  }catch(e){ log('Stopped: '+e.message,true); $('#bar').style.width='0'; }
   setBusy(false);
 };
 $('#btnPrev').onclick=async()=>{
