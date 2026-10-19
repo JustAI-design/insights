@@ -258,7 +258,7 @@ details.part textarea{margin-top:10px}
         <textarea id="narr" rows="12" placeholder="Paste the narration script here"></textarea>
         <div class="stat"><span><b id="wc">0</b> words</span><span>about <b id="mins">0</b> min spoken</span><span><b id="chunks">0</b> audio parts</span></div>
         <div class="check-box" id="check" hidden><div id="checkList"></div><button class="btn copy" id="btnFix" hidden>Fix automatically</button></div>
-        <div class="row" style="margin-top:12px"><button class="btn copy" id="btnSaveNotion">Save script to Notion</button><span class="help">Replaces the page body with this narration and sets Status to Scripted.</span></div>
+        <div class="row" style="margin-top:12px"><button class="btn copy" id="btnSaveNotion">Save script to Notion</button><span class="help">Writes this narration to the Script field and sets Status to Scripted.</span></div>
       </div>
       <div class="card">
         <div class="row" style="gap:22px;align-items:flex-end">
@@ -367,7 +367,7 @@ details.part textarea{margin-top:10px}
 <dialog id="dlgComp"><div class="sheet">
   <h2 style="font-size:28px">Episode companion</h2>
   <p class="help">Two-page branded PDF. Write it with AI from the narration, edit anything, then make the PDF.</p>
-  <div class="row" style="gap:14px"><div class="field" style="flex:2 1 200px"><label for="cSeries">Series</label><input type="text" id="cSeries"></div><div class="field" style="flex:1 1 90px"><label for="cNum">Episode number</label><input type="text" id="cNum" inputmode="numeric"></div></div>
+  <div class="field"><label for="cSeries">Series</label><input type="text" id="cSeries"></div>
   <div class="field"><label for="cTitle">Title</label><input type="text" id="cTitle"></div>
   <div class="field"><label for="cSub">Subtitle</label><input type="text" id="cSub"></div>
   <div class="field"><label for="cWhat">What happened (three short paragraphs, blank line between)</label><textarea id="cWhat" rows="8"></textarea></div>
@@ -802,7 +802,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.0.0 · 19 Oct 2026';
+const VERSION = '2.0.1 · 20 Oct 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -997,7 +997,7 @@ $('#btnSaveNotion').onclick=async()=>{
     const r=await fetch(c.worker+'/script',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,text,status})});
     const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
     if(status){ e.status=status; store.set('cache.episodes',S.episodes); }
-    toast(j.oldLeft>0?('Saved. '+j.oldLeft+' old blocks remain on the page, delete them in Notion.'):'Script saved to Notion');
+    toast('Script saved to the Script field in Notion');
   }catch(err){ toast('Could not save to Notion: '+err.message); }
   b.disabled=false; b.textContent=lbl;
 };
@@ -1005,17 +1005,16 @@ $('#btnSaveNotion').onclick=async()=>{
 /* episode companion PDF */
 const COMP_COLORS={navy:'#1B2A4A',teal:'#2A9D8F',coral:'#E07A5F',amber:'#E9A84C'};
 function compDefaults(){
-  const e=S.ep, d=draft().comp||{}; const num=(String(e.code||'').match(/(\d+)/)||[])[1];
-  const sl=(e.series||'').toLowerCase(); const series=sl.includes('project files')?'THE PROJECT FILES':sl.includes('people side')?'THE PEOPLE SIDE':(e.series||'').toUpperCase();
+  const e=S.ep, d=draft().comp||{}; const sl=(e.series||'').toLowerCase(); const series=sl.includes('project files')?'THE PROJECT FILES':sl.includes('people side')?'THE PEOPLE SIDE':(e.series||'').toUpperCase();
   const title=(e.title||'').replace(/^(the\s+)?(project files|people side|failure files)\s*[-:]\s*/i,'');
   const concepts=(e.keyConcepts||'').split(/\n|;|•/).map(s=>s.trim()).filter(Boolean).slice(0,5).map(s=>s+' | ').join('\n');
-  return Object.assign({series, num:num?String(Number(num)):'', title, subtitle:'', what:'', quote:'', lesson:e.lesson||'', concepts, reflection:''}, d);
+  return Object.assign({series, title, subtitle:'', what:'', quote:'', lesson:e.lesson||'', concepts, reflection:''}, d);
 }
 function openComp(){
-  const v=compDefaults(); $('#cSeries').value=v.series; $('#cNum').value=v.num; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; $('#dlgComp').showModal();
+  const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; $('#dlgComp').showModal();
 }
-function readComp(){ return {series:$('#cSeries').value.trim(), num:$('#cNum').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
-['cSeries','cNum','cTitle','cSub','cWhat','cQuote','cLesson','cConcepts','cRef'].forEach(id=>$('#'+id).addEventListener('input',()=>saveDraft({comp:readComp()})));
+function readComp(){ return {series:$('#cSeries').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
+['cSeries','cTitle','cSub','cWhat','cQuote','cLesson','cConcepts','cRef'].forEach(id=>$('#'+id).addEventListener('input',()=>saveDraft({comp:readComp()})));
 $('#btnComp').onclick=openComp; $('#cClose').onclick=()=>$('#dlgComp').close();
 $('#btnCompAI').onclick=async()=>{
   const a=aiCfg(); if(!a.key){ toast('Choose Claude or ChatGPT and add a key in settings'); return; }
@@ -1054,25 +1053,24 @@ function buildCompanionPdf(v){
   function drawPara(html,x,top,width,size,leading,color,base){ const L=layout(html,width,size,leading,base); L.lines.forEach((ln,k)=>{ const by=top-size-k*leading; ln.forEach(t=>{ if(t.w!==' ') text(t.w,x+t.x,by,t.f,size,color); }); }); return L.height; }
   const measure=(html,width,size,leading,base)=>layout(html,width,size,leading,base).height;
   const heading=(x,y,n,label,col)=>{ circ(x+11,y-1,11,col); text(String(n),x+11,y-1-3.85,'bold',12.1,'#FFFFFF','center'); text(label,x+30,y-6,'bold',14,NAVY); };
-  const cx=50,cw=W-100; const num=v.num||'1', titleFlat=clean(v.title).replace(/\s+/g,' ').trim();
+  const cx=50,cw=W-100; const titleFlat=clean(v.title).replace(/\s+/g,' ').trim();
   let tl=[titleFlat]; if(sw(titleFlat,'bold',26)>cw){ const ws=titleFlat.split(' '); let best=1,diff=1e9; for(let k=1;k<ws.length;k++){ const a=sw(ws.slice(0,k).join(' '),'bold',26), b2=sw(ws.slice(k).join(' '),'bold',26); if(Math.abs(a-b2)<diff){ diff=Math.abs(a-b2); best=k; } } tl=[ws.slice(0,best).join(' '),ws.slice(best).join(' ')]; }
   // page 1
   rect(0,0,W,H,CREAM); const bh=195; rect(0,H-bh,W,bh,DARK); line(0,H-bh,W,H-bh,TEAL,3);
   for(let i=0;i<30;i++)for(let j=0;j<6;j++){ const dx=38+i*18,dy=H-bh+18+j*25; if(dy<H-10) circ(dx,dy,1.2,'#243656'); }
   text(clean(v.series).toUpperCase()+'  |  EPISODE COMPANION',50,H-42,'bold',9,TEAL);
-  const bt='EPISODE '+num, bw=sw(bt,'bold',11)+24; rect(50,H-80,bw,26,TEAL,13); text(bt,62,H-73,'bold',11,'#FFFFFF');
-  tl.forEach((l,k)=>text(l,50,H-122-k*31,'bold',26,'#FFFFFF'));
-  const sy=H-122-tl.length*31-2; text(clean(v.subtitle),50,sy,'normal',10,'#8899AA'); text('PROJECT MANAGEMENT INSIGHTS',W-50,sy,'normal',7.5,'#556677','right');
+    tl.forEach((l,k)=>text(l,50,H-100-k*31,'bold',26,'#FFFFFF'));
+  const sy=H-100-tl.length*31-2; text(clean(v.subtitle),50,sy,'normal',10,'#8899AA'); text('PROJECT MANAGEMENT INSIGHTS',W-50,sy,'normal',7.5,'#556677','right');
   let cy=H-bh-40; heading(cx,cy,1,'What Happened',NAVY); cy-=28;
   const what=String(v.what||'').split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean).join('<br/><br/>');
   cy-=drawPara(what,cx,cy,cw,9.5,15,TXT)+28; line(cx,cy,cx+cw,cy,'#E0DDD8',0.5); cy-=28;
   heading(cx,cy,2,'The Core Lesson',TEAL); cy-=28;
   const qh=measure(v.quote,cw-36,10.5,16,'italic'), bxh=qh+28; rect(cx,cy-bxh,cw,bxh,'#E8F4F2',6); rect(cx,cy-bxh,4,bxh,TEAL); drawPara(v.quote,cx+20,cy-bxh+(bxh-qh)/2+qh,cw-36,10.5,16,SLATE,'italic'); cy-=bxh+16;
   cy-=drawPara(v.lesson,cx,cy,cw,9.5,15,TXT)+18; const p1low=cy;
-  text('Project Management Insights  |  Episode '+num+' Companion',50,32,'normal',7,SOFT); text('Page 1 of 2',W-50,32,'normal',7,SOFT,'right');
+  text('Project Management Insights  |  Companion',50,32,'normal',7,SOFT); text('Page 1 of 2',W-50,32,'normal',7,SOFT,'right');
   // page 2
   doc.addPage(); rect(0,0,W,H,CREAM); rect(0,H-4,W,4,TEAL);
-  text('EPISODE '+num,50,H-32,'bold',9,NAVY); text(titleFlat,50+sw('EPISODE '+num,'bold',9)+6,H-32,'normal',9,SOFT); line(50,H-44,W-50,H-44,'#D0CCC6',0.5);
+  text(titleFlat,50,H-32,'bold',9,NAVY); line(50,H-44,W-50,H-44,'#D0CCC6',0.5);
   cy=H-72; heading(cx,cy,3,'Key Concepts and Tools',CORAL); cy-=30;
   const cyc=['navy','teal','coral','amber'];
   String(v.concepts||'').split('\n').map(s=>s.trim()).filter(Boolean).forEach((ln,idx)=>{
@@ -1086,8 +1084,8 @@ function buildCompanionPdf(v){
   text('“',cx+14,cy-rbh+rbh*0.35,'bold',60,'#2A3D5C'); drawPara(v.reflection,cx+40,cy-rbh+(rbh-rh)/2+rh,cw-56,10,15.5,'#C8D6E5');
   const p2low=cy-rbh;
   rect(0,0,W,48,NAVY); rect(0,48,W,2,TEAL); text('PROJECT MANAGEMENT INSIGHTS',W/2,26,'bold',9,'#FFFFFF','center'); text('Helping you navigate the complexities of project delivery, one challenge at a time.',W/2,13,'normal',7.5,'#8899AA','center');
-  text('Episode '+num+' Companion',50,62,'normal',7,SOFT); text('Page 2 of 2',W-50,62,'normal',7,SOFT,'right');
-  doc.setProperties({title:'Episode Companion | Episode '+num,author:'Project Management Insights'});
+  text('Companion',50,62,'normal',7,SOFT); text('Page 2 of 2',W-50,62,'normal',7,SOFT,'right');
+  doc.setProperties({title:'Episode Companion | '+titleFlat,author:'Project Management Insights'});
   return {doc,warn:(p1low<50?'Page 1 text is long and may run into the footer. ':'')+(p2low<80?'Page 2 is full, so the concepts may overlap the footer. Shorten them.':'')};
 }
 $('#cMake').onclick=async()=>{
