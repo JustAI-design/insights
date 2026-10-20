@@ -214,6 +214,7 @@ details.part textarea{margin-top:10px}
     <section class="panel on" id="p1">
       <div class="ph"><div><h2>Which episode next?</h2><p>Everything not yet published, straight from Notion. Tap one to build its narration prompt.</p></div>
         <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div>
+      <div class="seg" id="scope" style="margin-bottom:14px"><button data-s="open" class="on">To do</button><button data-s="pub">Published</button><button data-s="nocomp">Published, no companion</button></div>
       <div class="tools"><div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" id="q" placeholder="Search code, title or series" aria-label="Search episodes"></div></div>
       <div class="chips" id="chips"></div>
       <div class="eps" id="eps"></div>
@@ -327,7 +328,7 @@ details.part textarea{margin-top:10px}
             <label class="check"><input type="checkbox" data-ck="d"> Scheduled or published</label>
             <div class="row" style="margin-top:16px"><button class="btn" id="btnComp">Episode companion PDF</button></div>
             <div class="row" style="margin-top:12px"><button class="btn primary" id="btnPublished">Mark as Published in Notion</button></div>
-            <p class="help" id="pubHelp">Sets Status to Published and Published Date to the date above.</p>
+            <p class="help" id="pubHelp">Sets Status to Published and Published Date to the date above, and saves the narration to the Script field.</p>
             <div class="row" style="margin-top:12px"><button class="btn teal" id="btnAnother">Next episode</button></div>
           </div>
         </div>
@@ -372,7 +373,7 @@ details.part textarea{margin-top:10px}
   <div class="field"><label for="cRef">Reflection</label><textarea id="cRef" rows="4"></textarea></div>
   <p class="help" id="cMsg"></p>
   <div class="field" id="cLinkRow" hidden><label for="cLink">Line for the episode description</label><div class="row"><input type="text" id="cLink" readonly style="flex:1 1 260px"><button class="btn copy" id="cCopyLink">Copy</button></div></div>
-  <div class="row"><button class="btn primary" id="cMake">Make PDF</button><button class="btn" id="cUp">Upload and copy link</button><button class="btn" id="btnCompAI">Write with AI</button><button class="btn ghost" id="cClose">Close</button></div>
+  <div class="row"><button class="btn primary" id="cMake">Make PDF</button><button class="btn" id="cUp">Upload and copy link</button><button class="btn" id="cUpOwn">Upload a PDF I already have</button><input type="file" id="cFile" accept="application/pdf,.pdf" hidden><button class="btn" id="btnCompAI">Write with AI</button><button class="btn ghost" id="cClose">Close</button></div>
 </div></dialog>
 <div class="toast" id="toast" role="status"></div>
 
@@ -482,7 +483,7 @@ function nextWeekday(from=new Date(), wd=CONFIG.weekday){
 }
 
 /* ---------- state ---------- */
-const S = { episodes:[], series:'All', q:'', ep:null, audio:null, fmt:'mp3', step:1, maxStep:1, busy:false };
+const S = { scope:'open', episodes:[], series:'All', q:'', ep:null, audio:null, fmt:'mp3', step:1, maxStep:1, busy:false };
 const cleanUrl = u => { u=(u||'').replace(/\s+/g,''); if(u && !/^https?:\/\//i.test(u)) u='https://'+u; return u.replace(/\/+$/,''); };
 const cfg = () => ({ worker:cleanUrl(store.get('cfg.worker','')), pass:(store.get('cfg.pass','')||'').trim(), key:(store.get('cfg.key','')||'').trim(), model:(m=>['gemini-3.8-flash-tts','gemini-3.8-flash-lite-tts'].includes(m)?m:CONFIG.defaultModel)(store.get('cfg.model',CONFIG.defaultModel)), voice:(store.get('cfg.voice',CONFIG.voice)||CONFIG.voice).trim() });
 const draftKey = id => 'draft.' + id;
@@ -513,37 +514,49 @@ function renderChips(){
 function renderEps(){
   const box=$('#eps'); box.innerHTML='';
   const q=S.q.trim().toLowerCase();
-  const list=S.episodes.filter(e=>(S.series==='All'||e.series===S.series)&&(!q||[e.code,e.title,e.series].join(' ').toLowerCase().includes(q)));
-  if(!list.length){ box.innerHTML='<div class="empty" style="grid-column:1/-1">'+(S.episodes.length?'No episodes match.':'No episodes loaded yet. Open settings to connect Notion.')+'</div>'; return; }
+  const list=S.episodes.filter(e=>(S.series==='All'||e.series===S.series)&&(S.scope!=='nocomp'||!(e.companionLink||e.hasPdf))&&(!q||[e.code,e.title,e.series].join(' ').toLowerCase().includes(q)));
+  if(!list.length){ box.innerHTML='<div class="empty" style="grid-column:1/-1">'+(S.episodes.length?(S.scope==='nocomp'?'Every published episode already has a companion.':'No episodes match.'):'No episodes loaded yet. Open settings to connect Notion.')+'</div>'; return; }
   list.forEach(e=>{
+    const pub=e.status==='Published';
     const b=document.createElement('button'); b.className='ep'+(S.ep&&S.ep.id===e.id?' sel':''); b.style.setProperty('--sc',SERIES_COLORS[e.series]||'#94a3b8');
-    const miss=[]; if(!e.scriptPrompt) miss.push('Script Prompt'); if(!e.description) miss.push('Description'); if(!e.keyConcepts) miss.push('Key Concepts');
+    const miss=[]; if(!pub){ if(!e.scriptPrompt) miss.push('Script Prompt'); if(!e.description) miss.push('Description'); if(!e.keyConcepts) miss.push('Key Concepts'); }
     const meta=document.createElement('div'); meta.className='meta';
-    [['code',e.code||'no code'],['tag',e.series||'No series'],['st '+e.status,e.status]].forEach(([c,t])=>{ const s=document.createElement('span'); s.className=c; s.textContent=t; meta.appendChild(s); });
+    const tags=[['code',e.code||'no code'],['tag',e.series||'No series']]; if(pub){ if(e.publishedDate) tags.push(['st',e.publishedDate]); tags.push(['st '+(e.companionLink||e.hasPdf?'Scripted':'Idea'),(e.companionLink||e.hasPdf)?'Companion':'No companion']); } else tags.push(['st '+e.status,e.status]);
+    tags.forEach(([c,t])=>{ const s=document.createElement('span'); s.className=c; s.textContent=t; meta.appendChild(s); });
     const h=document.createElement('h3'); h.textContent=cleanTitle(e.title);
     b.append(meta,h);
     if(miss.length){ const m=document.createElement('div'); m.className='miss'; m.textContent='Missing: '+miss.join(', '); b.appendChild(m); }
     b.onclick=()=>pick(e); box.appendChild(b);
   });
 }
+const epCacheKey = () => S.scope==='open' ? 'cache.episodes' : 'cache.published';
 async function loadEpisodes(force){
-  const c=cfg(); const box=$('#eps');
-  const cached=store.get('cache.episodes',null);
+  const c=cfg(); const box=$('#eps'), key=epCacheKey(), scopeAtStart=S.scope;
+  const cached=store.get(key,null);
   if(cached && !force){ S.episodes=cached.filter(valid); renderChips(); renderEps(); }
-  if(!c.worker||!c.pass){ $('#connDot').classList.remove('ok'); if(!cached) { renderChips(); renderEps(); } return; }
+  if(!c.worker||!c.pass){ $('#connDot').classList.remove('ok'); if(!cached) { S.episodes=[]; renderChips(); renderEps(); } return; }
   if(!cached||force){ box.innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>'; }
   if(!/^[\x20-\x7E]+$/.test(c.pass)){ $('#connDot').classList.remove('ok'); toast('The passcode has a character Safari cannot send. Retype it with plain letters and digits.'); renderChips(); renderEps(); return; }
   try{ new URL(c.worker); }catch(e){ toast('The Worker URL is not valid. It should look like https://name.account.workers.dev'); renderChips(); renderEps(); return; }
   try{
-    const r=await fetch(c.worker+'/episodes',{headers:{'X-Passcode':c.pass}});
+    const r=await fetch(c.worker+'/episodes'+(S.scope==='open'?'':'?scope=published'),{headers:{'X-Passcode':c.pass}});
     const j=await r.json(); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
-    S.episodes=j.episodes.filter(valid).sort((a,b)=>(a.code||'').localeCompare(b.code||'',undefined,{numeric:true}));
-    store.set('cache.episodes',S.episodes); $('#connDot').classList.add('ok'); if(force) toast('Episodes updated');
+    if(scopeAtStart!==S.scope) return;
+    let list=j.episodes.filter(valid);
+    if(S.scope==='open') list.sort((a,b)=>(a.code||'').localeCompare(b.code||'',undefined,{numeric:true}));
+    S.episodes=list; store.set(key,S.episodes); $('#connDot').classList.add('ok'); if(force) toast('Episodes updated');
   }catch(e){ $('#connDot').classList.remove('ok'); toast('Could not reach Notion: '+e.message+' (check Worker URL and passcode in settings)'); }
   renderChips(); renderEps();
 }
-function valid(e){ return e.status!=='Published' && e.code && e.title && e.title!=='Episode'; }
+function valid(e){ return e.code && e.title && e.title!=='Episode' && (S.scope==='open' ? e.status!=='Published' : e.status==='Published'); }
+$$('#scope button').forEach(b=>b.onclick=()=>{ S.scope=b.dataset.s; S.series='All'; $$('#scope button').forEach(x=>x.classList.toggle('on',x===b)); $('#p1 .ph p').textContent=S.scope==='open'?'Everything not yet published, straight from Notion. Tap one to build its narration prompt.':'Published episodes. Tap one to make or upload its companion PDF.'; S.episodes=[]; renderChips(); renderEps(); loadEpisodes(false); });
+async function openPublished(e){
+  S.ep=e; renderEps(); const c=cfg();
+  if(e.script===undefined){ toast('Loading episode…'); try{ const r=await fetch(c.worker+'/episode?id='+e.id,{headers:{'X-Passcode':c.pass}}); const j=await r.json(); if(r.ok){ e.script=j.script||''; if(!e.lesson) e.lesson=j.lesson||''; if(!e.description) e.description=j.description||''; if(!e.keyConcepts) e.keyConcepts=j.keyConcepts||''; } else e.script=''; }catch(_){ e.script=''; } }
+  openComp();
+}
 function pick(e){
+  if(e.status==='Published') return openPublished(e);
   S.ep=e; S.audio=null; $('#player').hidden=true; $('#btnTo4').disabled=true; $('#bar').style.width='0'; $('#log').textContent='';
   renderEps(); fillStep2(); fillStep3(); S.maxStep=1; go(2);
   idb.get('audio.'+e.id).then(rec=>{ if(rec&&S.ep&&S.ep.id===e.id){ setAudio(rec.blob,rec.ext,true); } });
@@ -777,10 +790,10 @@ $('#btnPublished').onclick=async()=>{
   if(!date){ toast('Pick a publishing date first'); return; }
   const b=$('#btnPublished'); b.disabled=true; b.textContent='Updating Notion…';
   try{
-    const r=await fetch(c.worker+'/publish',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,date})});
+    const r=await fetch(c.worker+'/publish',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,date,script:fixScript($('#narr').value)||undefined})});
     const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
-    S.episodes=S.episodes.filter(x=>x.id!==e.id); store.set('cache.episodes',S.episodes);
-    toast('Marked as Published in Notion'); S.ep=null; S.audio=null; S.maxStep=1; $('#player').hidden=true; $('#player2').hidden=true; $('#narr').value=''; renderChips(); renderEps(); go(1);
+    S.episodes=S.episodes.filter(x=>x.id!==e.id); store.set('cache.episodes',S.episodes); store.set('cache.published',null);
+    toast(j.scriptSaved?'Marked as Published and script saved in Notion':'Marked as Published in Notion'); S.ep=null; S.audio=null; S.maxStep=1; $('#player').hidden=true; $('#player2').hidden=true; $('#narr').value=''; renderChips(); renderEps(); go(1);
   }catch(err){ toast('Could not update Notion: '+err.message); }
   b.disabled=false; b.textContent='Mark as Published in Notion';
 };
@@ -798,7 +811,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.1.0 · 22 Oct 2026';
+const VERSION = '2.2.0 · 23 Oct 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -933,6 +946,7 @@ async function finalize(){
   else { blob=wavBlob(pcm,sr); ext='wav'; }
   $('#bar').style.width='100%'; setAudio(blob,ext,false); idb.put('audio.'+S.ep.id,{blob,ext});
   log('Done. '+(blob.size/1048576).toFixed(1)+' MB.'); toast('Audio ready');
+  try{ const r=await pushScript(); if(r.ok) log('Narration saved to the Script field in Notion.'); }catch(e){ log('Could not save the narration to Notion automatically: '+e.message+'. Use Save script to Notion.',true); }
 }
 /* repeated-section guard: a repeat adds audio, so a part much longer than its text should be is retried */
 function expectedSecs(text){ return wordCount(text)/CONFIG.wordsPerMinute*60; }
@@ -970,21 +984,36 @@ $('#btnPrev').onclick=async()=>{
 $('#btnTest').disabled=false;
 
 /* save the script to Notion */
+async function pushScript(){
+  const e=S.ep,c=cfg(),text=fixScript($('#narr').value); if(!e||!text||!c.worker||!c.pass) return {ok:false,why:'nothing to save'};
+  const status=(e.status==='Scripted'||e.status==='Recorded'||e.status==='Published')?undefined:'Scripted';
+  const r=await fetch(c.worker+'/script',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,text,status})});
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  if(status){ e.status=status; store.set('cache.episodes',S.episodes); }
+  return {ok:true};
+}
 $('#btnSaveNotion').onclick=async()=>{
-  const e=S.ep,c=cfg(),text=fixScript($('#narr').value); if(!e) return; if(!text){ toast('No narration to save'); return; }
-  if(!c.worker||!c.pass){ openSettings(); return; }
+  if(!S.ep) return; if(!fixScript($('#narr').value)){ toast('No narration to save'); return; } if(!cfg().worker){ openSettings(); return; }
   const b=$('#btnSaveNotion'); b.disabled=true; const lbl=b.textContent; b.textContent='Saving to Notion…';
-  try{
-    const status=(e.status==='Scripted'||e.status==='Recorded')?undefined:'Scripted';
-    const r=await fetch(c.worker+'/script',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,text,status})});
-    const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
-    if(status){ e.status=status; store.set('cache.episodes',S.episodes); }
-    toast('Script saved to the Script field in Notion');
-  }catch(err){ toast('Could not save to Notion: '+err.message); }
+  try{ await pushScript(); toast('Script saved to the Script field in Notion'); }catch(err){ toast('Could not save to Notion: '+err.message); }
   b.disabled=false; b.textContent=lbl;
 };
 
 /* episode companion PDF */
+function compNarration(){
+  const e=S.ep; let n='';
+  if(e.status==='Published') n=String(e.script||'').replace(/<br\s*\/?>/gi,'\n\n');
+  else n=cleanNarration($('#narr').value)||draft().narration||'';
+  n=n.trim(); if(n) return {text:n,full:true};
+  return {text:[e.description,e.keyConcepts].filter(Boolean).join('\n\n'),full:false};
+}
+function applyCompanion(j){
+  const e=S.ep; if(j.url) e.companionLink=j.url; if(j.backup) e.hasPdf=true;
+  [S.scope==='open'?'cache.episodes':'cache.published'].forEach(k=>{ const c=store.get(k,null); if(c){ const x=c.find(y=>y.id===e.id); if(x){ x.companionLink=e.companionLink; x.hasPdf=e.hasPdf; store.set(k,c); } } });
+  const o=store.get('cache.published',null); if(o){ const x=o.find(y=>y.id===e.id); if(x){ x.companionLink=e.companionLink; x.hasPdf=e.hasPdf; store.set('cache.published',o); } }
+  renderEps();
+}
+function uploadNote(j){ return j.backup?'Backed up in Notion. ':(j.backupError?'Notion backup failed: '+j.backupError+'. ':''); }
 const COMP_COLORS={navy:'#1B2A4A',teal:'#2A9D8F',coral:'#E07A5F',amber:'#E9A84C'};
 function compDefaults(){
   const e=S.ep, d=draft().comp||{}; const sl=(e.series||'').toLowerCase(); const series=sl.includes('project files')?'THE PROJECT FILES':sl.includes('people side')?'THE PEOPLE SIDE':(e.series||'').toUpperCase();
@@ -993,16 +1022,16 @@ function compDefaults(){
   return Object.assign({series, title, subtitle:'', what:'', quote:'', lesson:e.lesson||'', concepts, reflection:''}, d);
 }
 function openComp(){
-  const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; $('#dlgComp').showModal();
+  const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl||S.ep.companionLink; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; $('#dlgComp').showModal();
 }
 function readComp(){ return {series:$('#cSeries').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
 ['cSeries','cTitle','cSub','cWhat','cQuote','cLesson','cConcepts','cRef'].forEach(id=>$('#'+id).addEventListener('input',()=>saveDraft({comp:readComp()})));
 $('#btnComp').onclick=openComp; $('#cClose').onclick=()=>$('#dlgComp').close();
 $('#btnCompAI').onclick=async()=>{
   const a=aiCfg(); if(!a.key){ toast('Choose Claude or ChatGPT and add a key in settings'); return; }
-  const narr=cleanNarration($('#narr').value)||draft().narration||''; if(!narr){ toast('No narration for this episode on this device'); return; }
+  const src=compNarration(); const narr=src.text; if(!narr){ toast('No narration, description or key concepts to work from'); return; }
   const v=readComp(); const b=$('#btnCompAI'); b.disabled=true; $('#cMsg').textContent='Asking '+a.name+'…';
-  const prompt='You write the listener companion for an episode of the podcast Project Management Insights. Use the narration below. Reply with ONLY valid JSON, no code fences, with these keys: subtitle (one line summary under the title), what_happened (three short paragraphs separated by a blank line: setup, problem, resolution; story summary, not bullets), quote_text (one to three sentences, a memorable statement the listener could repeat), core_lesson (one paragraph expanding on the quote), concepts (array of 3 to 5 objects with title and body; the body defines the project management concept and connects it to this episode story, and may use <b> and <i>), reflection (a genuine, non-leading question of two to four sentences that makes the listener examine their own projects). Keep the language conversational. Never use em dashes. Avoid these words: '+bannedList().join(', ')+'.\n\nEpisode title: '+v.title+'\n\nNarration:\n'+narr;
+  const prompt='You write the listener companion for an episode of the podcast Project Management Insights. '+(src.full?'Use the narration below.':'The full narration is not available, so use the episode description and key concepts below.')+' Reply with ONLY valid JSON, no code fences, with these keys: subtitle (one line summary under the title), what_happened (three short paragraphs separated by a blank line: setup, problem, resolution; story summary, not bullets), quote_text (one to three sentences, a memorable statement the listener could repeat), core_lesson (one paragraph expanding on the quote), concepts (array of 3 to 5 objects with title and body; the body defines the project management concept and connects it to this episode story, and may use <b> and <i>), reflection (a genuine, non-leading question of two to four sentences that makes the listener examine their own projects). Keep the language conversational. Never use em dashes. Avoid these words: '+bannedList().join(', ')+'.\n\nEpisode title: '+v.title+'\n\nNarration:\n'+narr;
   try{
     const txt=await aiComplete(prompt,(t)=>{ $('#cMsg').textContent=a.name+' is writing… '+t.length+' characters'; },null,4000);
     const j=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
@@ -1085,13 +1114,25 @@ $('#cUp').onclick=async()=>{
   $('#cMsg').textContent='Building and uploading…'; $('#cUp').disabled=true;
   try{
     const r=await getCompanion(); if(!r) return; const fn=compFileName(), blob=r.doc.output('blob');
-    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(fn),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:blob});
+    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(fn)+'&id='+encodeURIComponent(S.ep.id),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:blob});
     const j=await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||('HTTP '+res.status));
     if(!j.url) throw new Error('Uploaded, but the Worker has no PUBLIC_BASE variable, so there is no link');
-    saveDraft({compUrl:j.url}); const line='Free companion guide: '+j.url; const ok=await copyText(line);
-    $('#cMsg').textContent=(ok?'Link copied. ':'')+line+' '+r.warn; $('#cLink').value=line; $('#cLinkRow').hidden=false;
+    saveDraft({compUrl:j.url}); applyCompanion(j); const line='Free companion guide: '+j.url; const ok=await copyText(line);
+    $('#cMsg').textContent=(ok?'Link copied. ':'')+uploadNote(j)+line+' '+r.warn; $('#cLink').value=line; $('#cLinkRow').hidden=false;
   }catch(e){ $('#cMsg').textContent='Could not upload: '+e.message; }
   $('#cUp').disabled=false;
+};
+$('#cUpOwn').onclick=()=>$('#cFile').click();
+$('#cFile').onchange=async(ev)=>{
+  const f=ev.target.files&&ev.target.files[0]; ev.target.value=''; if(!f) return; const c=cfg(); if(!c.worker||!c.pass){ openSettings(); return; }
+  $('#cMsg').textContent='Uploading '+f.name+'…';
+  try{
+    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(compFileName())+'&id='+encodeURIComponent(S.ep.id),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:f});
+    const j=await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||('HTTP '+res.status));
+    if(!j.url) throw new Error('Uploaded, but the Worker has no PUBLIC_BASE variable, so there is no link');
+    saveDraft({compUrl:j.url}); applyCompanion(j); const line='Free companion guide: '+j.url; const ok=await copyText(line);
+    $('#cMsg').textContent=(ok?'Link copied. ':'')+uploadNote(j)+line; $('#cLink').value=line; $('#cLinkRow').hidden=false;
+  }catch(e){ $('#cMsg').textContent='Could not upload: '+e.message; }
 };
 $('#cCopyLink').onclick=async()=>{ if(await copyText($('#cLink').value)) toast('Link copied'); };
 window.Studio.buildCompanionPdf=buildCompanionPdf; window.Studio.analyze=analyze; window.Studio.fixScript=fixScript; window.Studio.loadJsPdf=loadJsPdf;
