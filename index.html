@@ -215,6 +215,7 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
     <!-- 1 -->
     <section class="panel on" id="p1">
       <div class="ph"><div><h2>Which episode next?</h2><p>Everything not yet published, straight from Notion. Tap one to build its narration prompt.</p></div>
+        <button class="btn" id="btnGuide" hidden>Make a field guide</button>
         <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div>
       <div class="seg" id="scope" style="margin-bottom:14px"><button data-s="open" class="on">To do</button><button data-s="pub">Published</button><button data-s="nocomp">Published, no companion</button></div>
       <div class="tools"><div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" id="q" placeholder="Search code, title or series" aria-label="Search episodes"></div></div>
@@ -373,6 +374,18 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
   <textarea id="tplText" class="tpl mono" spellcheck="false"></textarea>
   <div class="row"><button class="btn primary" id="tplSave">Save template</button><button class="btn" id="tplReset">Reset to default</button><button class="btn ghost" id="tplCancel">Cancel</button></div>
 </div></dialog>
+<dialog id="dlgGuide"><div class="sheet">
+  <h2 style="font-size:28px">Series field guide</h2>
+  <p class="help">Combines the uploaded companion PDFs of one series into a single PDF with a cover and contents page. Only episodes whose companion is uploaded to your Cloudflare storage can be included.</p>
+  <div class="field"><label for="gSeries">Series</label><select id="gSeries"></select></div>
+  <div class="field"><label for="gTitle">Title</label><input type="text" id="gTitle"></div>
+  <div class="field"><label for="gSub">Subtitle</label><input type="text" id="gSub" placeholder="For example: Real project stories and what they teach"></div>
+  <div class="field"><label for="gEd">Edition</label><input type="text" id="gEd" placeholder="Edition 2026"></div>
+  <div class="field"><span class="lbl">Episodes to include</span><div id="gList"></div></div>
+  <p class="help" id="gMsg"></p>
+  <div class="field" id="gLinkRow" hidden><label for="gLink">Line for the description</label><div class="row"><input type="text" id="gLink" readonly style="flex:1 1 260px"><button class="btn copy" id="gCopy">Copy</button></div></div>
+  <div class="row"><button class="btn primary" id="gMake">Build and download</button><button class="btn" id="gUp">Build, upload and copy link</button><button class="btn ghost" id="gClose">Close</button></div>
+</div></dialog>
 <dialog id="dlgComp"><div class="sheet">
   <h2 style="font-size:28px">Episode companion</h2>
   <p class="help">Two-page branded PDF. Write it with AI from the narration, edit anything, then make the PDF.</p>
@@ -384,6 +397,12 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
   <div class="field"><label for="cLesson">Core lesson, explanation</label><textarea id="cLesson" rows="4"></textarea></div>
   <div class="field"><label for="cConcepts">Key concepts and tools (one per line: Title | explanation)</label><textarea id="cConcepts" rows="7"></textarea></div>
   <div class="field"><label for="cRef">Reflection</label><textarea id="cRef" rows="4"></textarea></div>
+  <div class="field"><label class="check"><input type="checkbox" id="cNotes"> Add a notes and discussion page (for team retrospectives and training)</label><p class="help">Adds a third page with the reflection question and blank lines. It is uploaded as a separate file and does not replace the companion saved in Notion.</p></div>
+  <details class="bk" id="cPostBox"><summary><b>Social posts</b></summary>
+    <p class="help" style="margin-top:10px">Three short posts from this companion: one built on the pull quote, one on the reflection question, one on the story. Edit them, then copy.</p>
+    <div class="row"><button class="btn" id="cPostBtn">Write 3 posts</button></div>
+    <div id="cPosts"></div>
+  </details>
   <p class="help" id="cMsg"></p>
   <div class="field" id="cLinkRow" hidden><label for="cLink">Line for the episode description</label><div class="row"><input type="text" id="cLink" readonly style="flex:1 1 260px"><button class="btn copy" id="cCopyLink">Copy</button></div></div>
   <div class="row"><button class="btn primary" id="cMake">Make PDF</button><button class="btn" id="cUp">Upload and copy link</button><button class="btn" id="cUpOwn">Upload a PDF I already have</button><input type="file" id="cFile" accept="application/pdf,.pdf" hidden><button class="btn" id="btnCompAI">Write with AI</button><button class="btn ghost" id="cClose">Close</button></div>
@@ -562,7 +581,7 @@ async function loadEpisodes(force){
   renderChips(); renderEps();
 }
 function valid(e){ return e.code && e.title && e.title!=='Episode' && (S.scope==='open' ? e.status!=='Published' : e.status==='Published'); }
-$$('#scope button').forEach(b=>b.onclick=()=>{ S.scope=b.dataset.s; S.series='All'; $$('#scope button').forEach(x=>x.classList.toggle('on',x===b)); $('#p1 .ph p').textContent=S.scope==='open'?'Everything not yet published, straight from Notion. Tap one to build its narration prompt.':'Published episodes. Tap one to make or upload its companion PDF.'; S.episodes=[]; renderChips(); renderEps(); loadEpisodes(false); });
+$$('#scope button').forEach(b=>b.onclick=()=>{ S.scope=b.dataset.s; S.series='All'; $$('#scope button').forEach(x=>x.classList.toggle('on',x===b)); $('#p1 .ph p').textContent=S.scope==='open'?'Everything not yet published, straight from Notion. Tap one to build its narration prompt.':'Published episodes. Tap one to make or upload its companion PDF.'; S.episodes=[]; $('#btnGuide').hidden=S.scope==='open'; renderChips(); renderEps(); loadEpisodes(false); });
 async function openPublished(e){
   S.ep=e; renderEps(); const c=cfg();
   if(e.script===undefined){ toast('Loading episode…'); try{ const r=await fetch(c.worker+'/episode?id='+e.id,{headers:{'X-Passcode':c.pass}}); const j=await r.json(); if(r.ok){ e.script=j.script||''; if(!e.lesson) e.lesson=j.lesson||''; if(!e.description) e.description=j.description||''; if(!e.keyConcepts) e.keyConcepts=j.keyConcepts||''; } else e.script=''; }catch(_){ e.script=''; } }
@@ -824,7 +843,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.3.0 · 24 Oct 2026';
+const VERSION = '2.4.0 · 1 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -1035,7 +1054,7 @@ function compDefaults(){
   return Object.assign({series, title, subtitle:'', what:'', quote:'', lesson:e.lesson||'', concepts, reflection:''}, d);
 }
 function openComp(){
-  const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl||S.ep.companionLink; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; $('#dlgComp').showModal();
+  const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl||S.ep.companionLink; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; renderPosts(draft().posts||[]); $('#dlgComp').showModal();
 }
 function readComp(){ return {series:$('#cSeries').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
 ['cSeries','cTitle','cSub','cWhat','cQuote','cLesson','cConcepts','cRef'].forEach(id=>$('#'+id).addEventListener('input',()=>saveDraft({comp:readComp()})));
@@ -1056,7 +1075,8 @@ $('#btnCompAI').onclick=async()=>{
 };
 let jsLoad=null;
 function loadJsPdf(){ if(window.jspdf) return Promise.resolve(); if(jsLoad) return jsLoad; jsLoad=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload=res; s.onerror=()=>{ jsLoad=null; rej(new Error('Could not load the PDF library')); }; document.head.appendChild(s); }); return jsLoad; }
-function buildCompanionPdf(v){
+function buildCompanionPdf(v,opts){
+  opts=opts||{}; const TOTAL=opts.notes?3:2;
   const { jsPDF } = window.jspdf; const doc=new jsPDF({unit:'pt',format:'letter'}); const W=612,H=792;
   const hex=h=>{ doc.setFillColor(h); }; const clean=s=>String(s||'').replace(/[—]/g,', ').replace(/[–]/g,'-').replace(/[^\x09\x0A\x20-\x7E -ÿ‘’“”•…]/g,'');
   const rect=(x,y,w,h,fill,r)=>{ doc.setFillColor(fill); if(r) doc.roundedRect(x,H-y-h,w,h,r,r,'F'); else doc.rect(x,H-y-h,w,h,'F'); };
@@ -1091,7 +1111,7 @@ function buildCompanionPdf(v){
   heading(cx,cy,2,'The Core Lesson',TEAL); cy-=28;
   const qh=measure(v.quote,cw-36,10.5,16,'italic'), bxh=qh+28; rect(cx,cy-bxh,cw,bxh,'#E8F4F2',6); rect(cx,cy-bxh,4,bxh,TEAL); drawPara(v.quote,cx+20,cy-bxh+(bxh-qh)/2+qh,cw-36,10.5,16,SLATE,'italic'); cy-=bxh+16;
   cy-=drawPara(v.lesson,cx,cy,cw,9.5,15,TXT)+18; const p1low=cy;
-  text('Project Management Insights  |  Companion',50,32,'normal',7,SOFT); text('Page 1 of 2',W-50,32,'normal',7,SOFT,'right');
+  text('Project Management Insights  |  Companion',50,32,'normal',7,SOFT); text('Page 1 of '+TOTAL,W-50,32,'normal',7,SOFT,'right');
   // page 2
   doc.addPage(); rect(0,0,W,H,CREAM); rect(0,H-4,W,4,TEAL);
   text(titleFlat,50,H-32,'bold',9,NAVY); line(50,H-44,W-50,H-44,'#D0CCC6',0.5);
@@ -1108,14 +1128,30 @@ function buildCompanionPdf(v){
   text('“',cx+14,cy-rbh+rbh*0.35,'bold',60,'#2A3D5C'); drawPara(v.reflection,cx+40,cy-rbh+(rbh-rh)/2+rh,cw-56,10,15.5,'#C8D6E5');
   const p2low=cy-rbh;
   rect(0,0,W,48,NAVY); rect(0,48,W,2,TEAL); text('PROJECT MANAGEMENT INSIGHTS',W/2,26,'bold',9,'#FFFFFF','center'); text('Helping you navigate the complexities of project delivery, one challenge at a time.',W/2,13,'normal',7.5,'#8899AA','center');
-  text('Companion',50,62,'normal',7,SOFT); text('Page 2 of 2',W-50,62,'normal',7,SOFT,'right');
+  text('Companion',50,62,'normal',7,SOFT); text('Page 2 of '+TOTAL,W-50,62,'normal',7,SOFT,'right');
+  let p3low=999;
+  if(opts.notes){
+    doc.addPage(); rect(0,0,W,H,CREAM); rect(0,H-4,W,4,TEAL);
+    text(titleFlat,50,H-32,'bold',9,NAVY); line(50,H-44,W-50,H-44,'#D0CCC6',0.5);
+    let y=H-72; heading(cx,y,5,'Notes and Discussion',TEAL); y-=28;
+    const intro='Use this page on your own, or with your team in a retrospective or a lunch-and-learn. Read the question, take five minutes to write, then share one idea each.';
+    y-=drawPara(intro,cx,y,cw,9.5,15,TXT)+14;
+    const qh2=measure(v.reflection,cw-56,10,15.5), qbh=Math.max(qh2+30,70); rect(cx,y-qbh,cw,qbh,DARK,6);
+    text('“',cx+14,y-qbh+qbh*0.35,'bold',60,'#2A3D5C'); drawPara(v.reflection,cx+40,y-qbh+(qbh-qh2)/2+qh2,cw-56,10,15.5,'#C8D6E5'); y-=qbh+26;
+    [['How this applies to my current project',4],['One thing I will try in the next month',3],['Questions to raise with the team',3]].forEach(([lab,n])=>{
+      text(lab,cx,y,'bold',10,NAVY); y-=8; for(let i=0;i<n;i++){ y-=22; line(cx,y,cx+cw,y,'#C9C5BE',0.6); } y-=24;
+    });
+    p3low=y;
+    rect(0,0,W,48,NAVY); rect(0,48,W,2,TEAL); text('PROJECT MANAGEMENT INSIGHTS',W/2,26,'bold',9,'#FFFFFF','center'); text('Helping you navigate the complexities of project delivery, one challenge at a time.',W/2,13,'normal',7.5,'#8899AA','center');
+    text('Companion',50,62,'normal',7,SOFT); text('Page 3 of 3',W-50,62,'normal',7,SOFT,'right');
+  }
   doc.setProperties({title:'Episode Companion | '+titleFlat,author:'Project Management Insights'});
-  return {doc,warn:(p1low<50?'Page 1 text is long and may run into the footer. ':'')+(p2low<80?'Page 2 is full, so the concepts may overlap the footer. Shorten them.':'')};
+  return {doc,warn:(p3low<75?'The notes page is full, so the last lines may touch the footer. ':'')+(p1low<50?'Page 1 text is long and may run into the footer. ':'')+(p2low<80?'Page 2 is full, so the concepts may overlap the footer. Shorten them.':'')};
 }
-function compFileName(){ const e=S.ep, base=String(e.code||'episode')+'-'+String(readComp().title||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50); return base.replace(/-+$/,'')+'-companion.pdf'; }
+function compFileName(){ const e=S.ep, base=String(e.code||'episode')+'-'+String(readComp().title||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50); return base.replace(/-+$/,'')+($('#cNotes').checked?'-companion-notes.pdf':'-companion.pdf'); }
 async function getCompanion(){
   const v=readComp(); if(!v.title||!v.what||!v.quote||!v.lesson||!v.concepts.trim()||!v.reflection){ $('#cMsg').textContent='Fill every section first, or use Write with AI.'; return null; }
-  await loadJsPdf(); return buildCompanionPdf(v);
+  await loadJsPdf(); return buildCompanionPdf(v,{notes:$('#cNotes').checked});
 }
 $('#cMake').onclick=async()=>{
   $('#cMsg').textContent='Building the PDF…';
@@ -1127,10 +1163,11 @@ $('#cUp').onclick=async()=>{
   $('#cMsg').textContent='Building and uploading…'; $('#cUp').disabled=true;
   try{
     const r=await getCompanion(); if(!r) return; const fn=compFileName(), blob=r.doc.output('blob');
-    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(fn)+'&id='+encodeURIComponent(S.ep.id),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:blob});
+    const notes=$('#cNotes').checked;
+    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(fn)+(notes?'':'&id='+encodeURIComponent(S.ep.id)),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:blob});
     const j=await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||('HTTP '+res.status));
     if(!j.url) throw new Error('Uploaded, but the Worker has no PUBLIC_BASE variable, so there is no link');
-    saveDraft({compUrl:j.url}); applyCompanion(j); const line='Free companion guide: '+j.url; const ok=await copyText(line);
+    if(!notes){ saveDraft({compUrl:j.url}); applyCompanion(j); } else saveDraft({notesUrl:j.url}); const line=(notes?'Team discussion version with notes page: ':'Free companion guide: ')+j.url; const ok=await copyText(line);
     $('#cMsg').textContent=(ok?'Link copied. ':'')+uploadNote(j)+line+' '+r.warn; $('#cLink').value=line; $('#cLinkRow').hidden=false;
   }catch(e){ $('#cMsg').textContent='Could not upload: '+e.message; }
   $('#cUp').disabled=false;
@@ -1200,6 +1237,124 @@ $('#bkGo').onclick=async()=>{
     info.textContent='Restored '+n+' items. Reloading…'; pendingRestore=null; setTimeout(()=>location.reload(),900);
   }catch(e){ info.textContent='Restore failed: '+e.message; }
   $('#bkGo').disabled=false;
+};
+
+/* social posts from the companion */
+function renderPosts(arr){
+  const box=$('#cPosts'); box.innerHTML='';
+  (arr||[]).forEach((t,i)=>{ const w=document.createElement('div'); w.className='field'; const lb=document.createElement('label'); lb.textContent='Post '+(i+1)+(i===0?' (pull quote)':i===1?' (reflection)':' (story)');
+    const ta=document.createElement('textarea'); ta.rows=7; ta.value=t; ta.oninput=()=>saveDraft({posts:[...box.querySelectorAll('textarea')].map(x=>x.value)});
+    const row=document.createElement('div'); row.className='row'; row.style.marginTop='8px'; const cp=document.createElement('button'); cp.className='btn copy'; cp.textContent='Copy'; cp.onclick=async()=>{ if(await copyText(ta.value)) toast('Post '+(i+1)+' copied'); }; row.appendChild(cp);
+    const cn=document.createElement('span'); cn.className='help'; const upd=()=>{ cn.textContent=ta.value.length+' characters'; }; ta.addEventListener('input',upd); upd(); row.appendChild(cn);
+    w.append(lb,ta,row); box.appendChild(w); });
+}
+function plainPosts(v){
+  const link=draft().compUrl||S.ep.companionLink||''; const tail=link?'\n\nFree companion guide: '+link:'';
+  const first=String(v.what||'').split(/\n\s*\n/)[0]||'';
+  return ['"'+v.quote.replace(/^"|"$/g,'')+'"\n\nFrom the latest episode of Project Management Insights.'+tail,
+          v.reflection+'\n\nI would like to hear how you handle this in your own projects.'+tail,
+          first+'\n\nThe lesson: '+v.lesson+tail];
+}
+$('#cPostBtn').onclick=async()=>{
+  const v=readComp(); if(!v.quote||!v.reflection){ $('#cMsg').textContent='Fill the pull quote and the reflection first, or use Write with AI.'; return; }
+  const a=aiCfg(), link=draft().compUrl||S.ep.companionLink||''; const b=$('#cPostBtn');
+  if(!a.key){ renderPosts(plainPosts(v)); $('#cMsg').textContent='Posts built from the companion text. Add a Claude or ChatGPT key in settings for written posts.'; return; }
+  b.disabled=true; $('#cMsg').textContent='Asking '+a.name+'…';
+  const prompt='Write three short LinkedIn posts for the podcast Project Management Insights, based on this episode companion. Post 1 is built around the pull quote. Post 2 is built around the reflection question and invites replies. Post 3 is a mini story from the episode ending with its lesson. Each post is plain text, 450 characters or fewer, conversational, written in the first person by the host, with no emojis and at most two hashtags. Never use em dashes. Avoid these words: '+bannedList().join(', ')+'.'+(link?' End every post with the line "Free companion guide: '+link+'".':'')+' Reply with ONLY valid JSON: {"posts":["...","...","..."]}.\n\nEpisode: '+v.title+'\nPull quote: '+v.quote+'\nCore lesson: '+v.lesson+'\nWhat happened: '+v.what+'\nReflection: '+v.reflection;
+  try{
+    const txt=await aiComplete(prompt,null,null,2000); const j=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
+    const arr=(j.posts||[]).slice(0,3).map(s=>String(s).replace(/—/g,', ')); if(arr.length<3) throw new Error('Fewer than three posts came back');
+    renderPosts(arr); saveDraft({posts:arr}); $('#cMsg').textContent='Three posts ready. Edit and copy them below.';
+  }catch(e){ $('#cMsg').textContent='Could not write the posts: '+e.message; }
+  b.disabled=false;
+};
+
+/* series field guide (merges uploaded companion PDFs) */
+let pdfLibLoad=null;
+function loadPdfLib(){ if(window.PDFLib) return Promise.resolve(); if(pdfLibLoad) return pdfLibLoad; pdfLibLoad=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'; s.onload=res; s.onerror=()=>{ pdfLibLoad=null; rej(new Error('Could not load the PDF library')); }; document.head.appendChild(s); }); return pdfLibLoad; }
+const gNum=e=>Number((String(e.code||'').match(/(\d+)/)||[0,0])[1]);
+let guideEps=[];
+function guideSlug(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60); }
+function paintGuideList(){
+  const ser=$('#gSeries').value, box=$('#gList'); box.innerHTML='';
+  const list=guideEps.filter(e=>e.series===ser).sort((a,b)=>gNum(a)-gNum(b));
+  if(!list.length){ box.innerHTML='<p class="help">No episodes in this series have an uploaded companion yet.</p>'; return; }
+  list.forEach(e=>{ const l=document.createElement('label'); l.className='check'; const c=document.createElement('input'); c.type='checkbox'; c.checked=true; c.dataset.id=e.id; l.appendChild(c); l.append(' '+e.code+'  '+cleanTitle(e.title)); box.appendChild(l); });
+  if(!$('#gTitle').dataset.touched) $('#gTitle').value=(/^the\s/i.test(ser)?ser:'The '+ser)+' Field Guide';
+}
+$('#gTitle').addEventListener('input',()=>{ $('#gTitle').dataset.touched='1'; });
+$('#gSeries').onchange=()=>{ delete $('#gTitle').dataset.touched; paintGuideList(); };
+$('#btnGuide').onclick=async()=>{
+  const c=cfg(); if(!c.worker||!c.pass){ openSettings(); return; }
+  $('#gMsg').textContent='Loading published episodes…'; $('#gLinkRow').hidden=true; $('#dlgGuide').showModal();
+  try{
+    const r=await fetch(c.worker+'/episodes?scope=published',{headers:{'X-Passcode':c.pass}}); const j=await r.json(); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+    guideEps=j.episodes.filter(e=>e.companionLink&&e.series&&/\.pdf$/i.test(e.companionLink)&&!/-notes\.pdf$/i.test(e.companionLink));
+    const names=[...new Set(guideEps.map(e=>e.series))].sort(), sel=$('#gSeries'); sel.innerHTML=''; names.forEach(n=>{ const o=document.createElement('option'); o.value=o.textContent=n; sel.appendChild(o); });
+    if(S.series!=='All'&&names.includes(S.series)) sel.value=S.series; delete $('#gTitle').dataset.touched; paintGuideList();
+    $('#gMsg').textContent=names.length?'':'No published episode has an uploaded companion yet.';
+  }catch(e){ $('#gMsg').textContent='Could not load episodes: '+e.message; }
+};
+$('#gClose').onclick=()=>$('#dlgGuide').close();
+$('#gCopy').onclick=async()=>{ if(await copyText($('#gLink').value)) toast('Link copied'); };
+async function buildGuide(){
+  const c=cfg(), ser=$('#gSeries').value, title=$('#gTitle').value.trim(), sub=$('#gSub').value.trim(), ed=$('#gEd').value.trim();
+  const ids=[...$$('#gList input:checked')].map(x=>x.dataset.id), items=guideEps.filter(e=>ids.includes(e.id)).sort((a,b)=>gNum(a)-gNum(b));
+  if(items.length<2) throw new Error('Choose at least two episodes');
+  if(!title) throw new Error('Add a title');
+  await loadPdfLib(); const {PDFDocument,StandardFonts,rgb}=PDFLib;
+  const hex=h=>{ const n=parseInt(h.slice(1),16); return rgb(((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255); };
+  const NAVY=hex('#1B2A4A'),DARK=hex('#0F1B33'),TEAL=hex('#2A9D8F'),CREAM=hex('#FAF8F5'),SOFT=hex('#6B7B8D'),TXT=hex('#1A1A2E'),WHITE=rgb(1,1,1),LINE=hex('#E0DDD8');
+  const san=s=>String(s||'').replace(/[—]/g,', ').replace(/[–]/g,'-').replace(/[^\x20-\x7E -ÿ‘’“”•…]/g,'');
+  const out=await PDFDocument.create(), reg=await out.embedFont(StandardFonts.Helvetica), bold=await out.embedFont(StandardFonts.HelveticaBold);
+  const docs=[], skipped=[];
+  for(const e of items){ const name=e.companionLink.split('/').pop().split('?')[0];
+    try{ const r=await fetch(c.worker+'/companion-file?name='+encodeURIComponent(name),{headers:{'X-Passcode':c.pass}}); if(!r.ok) throw new Error('missing'); const d=await PDFDocument.load(await r.arrayBuffer()); docs.push({e,d,n:d.getPageCount()}); }
+    catch(err){ skipped.push(e.code); } }
+  if(docs.length<2) throw new Error('Fewer than two of the chosen companions could be read from storage');
+  const per=22, tocPages=Math.ceil(docs.length/per), W=612, H=792;
+  const wrap=(t,f,sz,max)=>{ const ws=san(t).split(/\s+/), lines=[]; let cur=''; ws.forEach(w=>{ const tt=cur?cur+' '+w:w; if(f.widthOfTextAtSize(tt,sz)>max&&cur){ lines.push(cur); cur=w; } else cur=tt; }); if(cur) lines.push(cur); return lines; };
+  // cover
+  let pg=out.addPage([W,H]); pg.drawRectangle({x:0,y:0,width:W,height:H,color:DARK}); pg.drawRectangle({x:0,y:H-300,width:W,height:3,color:TEAL,opacity:1});
+  for(let i=0;i<30;i++)for(let j=0;j<12;j++) pg.drawCircle({x:38+i*18,y:60+j*20,size:1.1,color:hex('#243656')});
+  pg.drawText(san(ser).toUpperCase()+'  |  EPISODE COMPANIONS',{x:50,y:H-80,size:10,font:bold,color:TEAL});
+  let ty=H-170; wrap(title,bold,40,W-100).forEach(l=>{ pg.drawText(l,{x:50,y:ty,size:40,font:bold,color:WHITE}); ty-=48; });
+  if(sub) wrap(sub,reg,13,W-100).forEach(l=>{ pg.drawText(l,{x:50,y:ty-6,size:13,font:reg,color:hex('#8899AA')}); ty-=18; });
+  pg.drawText(docs.length+' episode companions'+(ed?'  |  '+san(ed):''),{x:50,y:H-330,size:11,font:bold,color:TEAL});
+  pg.drawText('PROJECT MANAGEMENT INSIGHTS',{x:50,y:60,size:10,font:bold,color:WHITE});
+  pg.drawText('Helping you navigate the complexities of project delivery, one challenge at a time.',{x:50,y:44,size:8,font:reg,color:hex('#8899AA')});
+  // contents
+  let pageNo=2+tocPages; const starts=docs.map(d=>{ const s=pageNo; pageNo+=d.n; return s; });
+  for(let t=0;t<tocPages;t++){
+    pg=out.addPage([W,H]); pg.drawRectangle({x:0,y:0,width:W,height:H,color:CREAM}); pg.drawRectangle({x:0,y:H-4,width:W,height:4,color:TEAL});
+    pg.drawText('Contents',{x:50,y:H-80,size:24,font:bold,color:NAVY}); pg.drawText(san(title),{x:50,y:H-100,size:9,font:reg,color:SOFT});
+    let y=H-140; docs.slice(t*per,(t+1)*per).forEach((d,i)=>{ const k=t*per+i;
+      pg.drawText(san(d.e.code),{x:50,y,size:9,font:bold,color:TEAL});
+      let ttl=san(cleanTitle(d.e.title)); while(ttl.length>3&&reg.widthOfTextAtSize(ttl,10.5)>400) ttl=ttl.slice(0,-2); if(ttl!==san(cleanTitle(d.e.title))) ttl=ttl.trimEnd()+'...';
+      pg.drawText(ttl,{x:110,y,size:10.5,font:reg,color:TXT}); const pn=String(starts[k]); pg.drawText(pn,{x:W-50-bold.widthOfTextAtSize(pn,10),y,size:10,font:bold,color:NAVY});
+      pg.drawLine({start:{x:50,y:y-9},end:{x:W-50,y:y-9},thickness:0.5,color:LINE}); y-=28; });
+    pg.drawRectangle({x:0,y:0,width:W,height:30,color:NAVY}); pg.drawText('PROJECT MANAGEMENT INSIGHTS',{x:W/2-bold.widthOfTextAtSize('PROJECT MANAGEMENT INSIGHTS',8)/2,y:11,size:8,font:bold,color:WHITE});
+  }
+  for(const d of docs){ const pgs=await out.copyPages(d.d,d.d.getPageIndices()); pgs.forEach(p=>out.addPage(p)); }
+  out.setTitle(san(title)); out.setAuthor('Project Management Insights');
+  const bytes=await out.save(); return {bytes,skipped,count:docs.length,name:guideSlug(title)+'.pdf',title};
+}
+$('#gMake').onclick=async()=>{
+  $('#gMsg').textContent='Building the field guide…'; $('#gMake').disabled=true;
+  try{ const r=await buildGuide(); downloadBlob(new Blob([r.bytes],{type:'application/pdf'}),r.name); $('#gMsg').textContent='Saved '+r.name+' ('+r.count+' episodes, '+(r.bytes.length/1048576).toFixed(1)+' MB).'+(r.skipped.length?' Not found in storage: '+r.skipped.join(', ')+'.':''); }
+  catch(e){ $('#gMsg').textContent='Could not build it: '+e.message; }
+  $('#gMake').disabled=false;
+};
+$('#gUp').onclick=async()=>{
+  const c=cfg(); $('#gMsg').textContent='Building and uploading…'; $('#gUp').disabled=true;
+  try{
+    const r=await buildGuide(); if(r.bytes.length>7.5*1048576) throw new Error('The guide is over 7.5 MB. Choose fewer episodes.');
+    const res=await fetch(c.worker+'/companion?name='+encodeURIComponent(r.name),{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/pdf'},body:new Blob([r.bytes],{type:'application/pdf'})});
+    const j=await res.json().catch(()=>({})); if(!res.ok) throw new Error(j.error||('HTTP '+res.status)); if(!j.url) throw new Error('Uploaded, but the Worker has no PUBLIC_BASE variable, so there is no link');
+    const line='Free field guide: '+j.url; const ok=await copyText(line); $('#gLink').value=line; $('#gLinkRow').hidden=false;
+    $('#gMsg').textContent=(ok?'Link copied. ':'')+line+(r.skipped.length?' Not found in storage: '+r.skipped.join(', ')+'.':'');
+  }catch(e){ $('#gMsg').textContent='Could not upload: '+e.message; }
+  $('#gUp').disabled=false;
 };
 window.Studio.buildCompanionPdf=buildCompanionPdf; window.Studio.analyze=analyze; window.Studio.fixScript=fixScript; window.Studio.loadJsPdf=loadJsPdf;
 paintAiButtons();
