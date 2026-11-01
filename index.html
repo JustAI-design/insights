@@ -389,6 +389,13 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
 <dialog id="dlgComp"><div class="sheet">
   <h2 style="font-size:28px">Episode companion</h2>
   <p class="help">Two-page branded PDF. Write it with AI from the narration, edit anything, then make the PDF.</p>
+  <details class="bk" id="cAudBox"><summary><b>Fill from the episode audio</b></summary>
+    <p class="help" style="margin-top:10px">Pick the audio file of this episode. Gemini listens to it and fills in the companion fields below. Tick the box to also keep the transcript in the Script field in Notion (skipped if that field already has text).</p>
+    <div class="field"><label class="check"><input type="checkbox" id="cAudSave" checked> Save the transcript to Notion</label></div>
+    <div class="field"><label for="cAudModel">Gemini model</label><input type="text" id="cAudModel" placeholder="gemini-flash-latest"></div>
+    <div class="row"><button class="btn" id="cAudBtn">Choose audio file</button><input type="file" id="cAudFile" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac" hidden></div>
+    <p class="help" id="cAudMsg"></p>
+  </details>
   <div class="field"><label for="cSeries">Series</label><input type="text" id="cSeries"></div>
   <div class="field"><label for="cTitle">Title</label><input type="text" id="cTitle"></div>
   <div class="field"><label for="cSub">Subtitle</label><input type="text" id="cSub"></div>
@@ -708,8 +715,8 @@ function upsampleTo44(pcm, sr){
   for(let i=0;i<n;i++){ const t=i*r, k=Math.floor(t), f=t-k, a=pcm[k], b=pcm[Math.min(k+1,pcm.length-1)]; o[i]=a+(b-a)*f; }
   return {pcm:o,sr:44100};
 }
-async function mp3Blob(pcm, sr){
-  await loadLame(); const enc=new lamejs.Mp3Encoder(1,sr,160), out=[], N=1152;
+async function mp3Blob(pcm, sr, kbps){
+  await loadLame(); const enc=new lamejs.Mp3Encoder(1,sr,kbps||160), out=[], N=1152;
   for(let i=0;i<pcm.length;i+=N){ const b=enc.encodeBuffer(pcm.subarray(i,i+N)); if(b.length) out.push(new Uint8Array(b)); if((i/N)%400===0) await new Promise(r=>setTimeout(r)); }
   const f=enc.flush(); if(f.length) out.push(new Uint8Array(f)); return new Blob(out,{type:'audio/mpeg'});
 }
@@ -843,7 +850,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.4.0 · 1 Nov 2026';
+const VERSION = '2.5.0 · 1 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -1067,10 +1074,55 @@ $('#btnCompAI').onclick=async()=>{
   try{
     const txt=await aiComplete(prompt,(t)=>{ $('#cMsg').textContent=a.name+' is writing… '+t.length+' characters'; },null,4000);
     const j=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
-    $('#cSub').value=j.subtitle||''; $('#cWhat').value=(j.what_happened||'').replace(/<br\s*\/?>(\s*<br\s*\/?>)?/gi,'\n\n'); $('#cQuote').value=j.quote_text||''; $('#cLesson').value=j.core_lesson||'';
-    $('#cConcepts').value=(j.concepts||[]).map(c=>(c.title||'')+' | '+String(c.body||'').replace(/\s*\n\s*/g,' ')).join('\n'); $('#cRef').value=j.reflection||'';
-    saveDraft({comp:readComp()}); $('#cMsg').textContent='Done. Read it through, edit anything, then make the PDF.';
+    applyCompJson(j); $('#cMsg').textContent='Done. Read it through, edit anything, then make the PDF.';
   }catch(e){ $('#cMsg').textContent='Could not write the companion: '+e.message; }
+  b.disabled=false;
+};
+
+function applyCompJson(j){
+  $('#cSub').value=j.subtitle||''; $('#cWhat').value=(j.what_happened||'').replace(/<br\s*\/?>(\s*<br\s*\/?>)?/gi,'\n\n'); $('#cQuote').value=j.quote_text||''; $('#cLesson').value=j.core_lesson||'';
+  $('#cConcepts').value=(j.concepts||[]).map(c=>(c.title||'')+' | '+String(c.body||'').replace(/\s*\n\s*/g,' ')).join('\n'); $('#cRef').value=j.reflection||'';
+  saveDraft({comp:readComp()});
+}
+/* companion fields from the episode audio (Gemini) */
+$('#cAudModel').value=store.get('cfg.audModel','')||''; $('#cAudModel').addEventListener('input',()=>store.set('cfg.audModel',$('#cAudModel').value.trim()));
+$('#cAudBtn').onclick=()=>{ if(!cfg().key){ toast('Add your Gemini key in settings first'); return; } $('#cAudFile').click(); };
+function fileToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=()=>rej(new Error('Could not read the file')); r.readAsDataURL(blob); }); }
+async function audioForGemini(file,msg){
+  const ext=(file.name.split('.').pop()||'').toLowerCase(); const direct={mp3:'audio/mpeg',wav:'audio/wav',flac:'audio/flac',ogg:'audio/ogg',aac:'audio/aac'};
+  if(direct[ext] && file.size<=12*1024*1024) return {blob:file,mime:direct[ext]};
+  msg('Preparing the audio for upload…');
+  const ac=new (window.AudioContext||window.webkitAudioContext)(); let buf;
+  try{ buf=await ac.decodeAudioData(await file.arrayBuffer()); }catch(_){ throw new Error('This audio file could not be opened. Try an MP3 or WAV.'); } finally{ try{ac.close();}catch(_){} }
+  const n=Math.ceil(buf.duration*16000), oc=new (window.OfflineAudioContext||window.webkitOfflineAudioContext)(1,n,16000), src=oc.createBufferSource(); src.buffer=buf; src.connect(oc.destination); src.start();
+  const r=await oc.startRendering(); const f=r.getChannelData(0), pcm=new Int16Array(f.length);
+  for(let i=0;i<f.length;i++) pcm[i]=Math.max(-32768,Math.min(32767,Math.round(f[i]*32767)));
+  const blob=await mp3Blob(pcm,16000,32);
+  if(blob.size>14*1024*1024) throw new Error('This episode is too long to send in one go ('+(blob.size/1048576).toFixed(0)+' MB after compression).');
+  return {blob,mime:'audio/mpeg'};
+}
+$('#cAudFile').onchange=async()=>{
+  const f=$('#cAudFile').files[0]; $('#cAudFile').value=''; if(!f) return;
+  const msg=t=>{ $('#cAudMsg').textContent=t; }; const b=$('#cAudBtn'); b.disabled=true; const c=cfg(), e=S.ep;
+  const save=$('#cAudSave').checked && c.worker && c.pass;
+  try{
+    const a=await audioForGemini(f,msg); msg('Uploading '+(a.blob.size/1048576).toFixed(1)+' MB to Gemini…'); const data=await fileToB64(a.blob);
+    const model=($('#cAudModel').value.trim()||'gemini-flash-latest'); const v=readComp();
+    const prompt='You work on the podcast Project Management Insights. Listen to the episode audio. Reply with ONLY valid JSON, no code fences, with these keys: '+(save?'transcript (the full narration as clean text, no timestamps, no speaker labels, paragraphs separated by a blank line, spelled correctly, with no commentary), ':'')+'subtitle (one line summary under the title), what_happened (three short paragraphs separated by a blank line: setup, problem, resolution; story summary, not bullets), quote_text (one to three sentences, a memorable statement the listener could repeat), core_lesson (one paragraph expanding on the quote), concepts (array of 3 to 5 objects with title and body; the body defines the project management concept and connects it to this episode story, and may use <b> and <i>), reflection (a genuine, non-leading question of two to four sentences that makes the listener examine their own projects). Keep the language conversational. Never use em dashes in the companion fields. Avoid these words in the companion fields: '+bannedList().join(', ')+'.\n\nEpisode title: '+(v.title||e.title||'');
+    msg('Gemini is listening. A 10 minute episode takes about a minute…');
+    const ctl=new AbortController(), to=setTimeout(()=>ctl.abort(),170000);
+    let r; try{ r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-goog-api-key':c.key},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:a.mime,data}}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:30000,temperature:0.3}})}); } finally{ clearTimeout(to); }
+    const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error((j.error&&j.error.message)||('Gemini returned HTTP '+r.status));
+    const txt=(((j.candidates||[])[0]||{}).content||{}).parts; const raw=(txt||[]).map(p=>p.text||'').join('');
+    let o; try{ o=JSON.parse(raw.slice(raw.indexOf('{'),raw.lastIndexOf('}')+1)); }catch(_){ throw new Error('Gemini did not return usable text. Try again or use a shorter file.'); }
+    applyCompJson(o); let note='Done. Read the fields through, edit anything, then make the PDF.';
+    if(save && o.transcript){
+      const tr=String(o.transcript).trim();
+      if(String(e.script||'').trim()) note+=' The Script field in Notion already has text, so the transcript was not saved.';
+      else{ const rr=await fetch(c.worker+'/script',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,text:tr})}); const jj=await rr.json().catch(()=>({})); if(rr.ok){ e.script=tr; note+=' Transcript saved to the Script field in Notion.'; } else note+=' The transcript could not be saved to Notion: '+(jj.error||('HTTP '+rr.status))+'.'; }
+    }
+    msg(note);
+  }catch(err){ msg(err.name==='AbortError'?'Gemini took too long. Try a shorter file.':'Could not use the audio: '+err.message); }
   b.disabled=false;
 };
 let jsLoad=null;
