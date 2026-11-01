@@ -388,6 +388,7 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
 </div></dialog>
 <dialog id="dlgComp"><div class="sheet">
   <h2 style="font-size:28px">Episode companion</h2>
+  <p id="cEpId" style="margin:-4px 0 10px;font-weight:600"></p>
   <p class="help">Two-page branded PDF. Write it with AI from the narration, edit anything, then make the PDF.</p>
   <details class="bk" id="cAudBox"><summary><b>Fill from the episode audio</b></summary>
     <p class="help" style="margin-top:10px">Pick the audio file of this episode. Gemini listens to it and fills in the companion fields below. Tick the box to also keep the transcript in the Script field in Notion (skipped if that field already has text).</p>
@@ -850,7 +851,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.5.0 · 1 Nov 2026';
+const VERSION = '2.5.1 · 1 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -1061,6 +1062,7 @@ function compDefaults(){
   return Object.assign({series, title, subtitle:'', what:'', quote:'', lesson:e.lesson||'', concepts, reflection:''}, d);
 }
 function openComp(){
+  $('#cEpId').textContent=[S.ep.code,S.ep.title].filter(Boolean).join('  |  ');
   const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl||S.ep.companionLink; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; renderPosts(draft().posts||[]); $('#dlgComp').showModal();
 }
 function readComp(){ return {series:$('#cSeries').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
