@@ -248,6 +248,7 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
           <a class="btn" href="https://claude.ai/new" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open Claude</a>
           <span class="spacer"></span>
           <button class="btn primary" id="btnAI">Write it with AI<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
+          <button class="btn" id="btnUseNotion">Use the script saved in Notion</button>
           <button class="btn teal" id="btnTo3">I have the narration<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
         </div>
         <div class="log" id="aiLog" style="margin-top:12px"></div>
@@ -620,6 +621,21 @@ function fillStep2(){
 }
 $('#btnCopyPrompt').onclick=async()=>{ const ok=await copyText($('#promptOut').value); toast(ok?'Prompt copied. Paste it into Claude.':'Copy failed. Select the text and copy manually.'); };
 $('#btnTo3').onclick=()=>go(3);
+$('#btnUseNotion').onclick=async()=>{
+  const e=S.ep, c=cfg(); if(!e) return; if(!c.worker||!c.pass){ openSettings(); return; }
+  const b=$('#btnUseNotion'), lbl=b.textContent; b.disabled=true; b.textContent='Loading from Notion…';
+  try{
+    if(e.script===undefined){ const r=await fetch(c.worker+'/episode?id='+e.id,{headers:{'X-Passcode':c.pass}}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); e.script=j.script||''; }
+    const t=String(e.script||'').replace(/<br\s*\/?>/gi,'\n\n').replace(/\r/g,'').trim();
+    if(!t){ toast('This episode has no script saved in Notion'); }
+    else{
+      const cur=$('#narr').value.trim(); if(cur && cur!==t && !confirm('Replace the narration already in the app with the script from Notion?')){ b.disabled=false; b.textContent=lbl; return; }
+      saveDraft({narration:t}); fillStep3(); S.maxStep=Math.max(S.maxStep||1,2); go(3); toast('Script loaded from Notion');
+    }
+  }catch(err){ toast('Could not load the script: '+err.message); }
+  b.disabled=false; b.textContent=lbl;
+};
+
 
 /* ---------- step 3 ---------- */
 function fillStep3(){
@@ -851,7 +867,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.5.1 · 1 Nov 2026';
+const VERSION = '2.6.0 · 4 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
