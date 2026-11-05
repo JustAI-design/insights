@@ -263,6 +263,18 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
         <textarea id="narr" rows="12" placeholder="Paste the narration script here"></textarea>
         <div class="stat"><span><b id="wc">0</b> words</span><span>about <b id="mins">0</b> min spoken</span><span><b id="chunks">0</b> audio parts</span></div>
         <div class="check-box" id="check" hidden><div id="checkList"></div><button class="btn copy" id="btnFix" hidden>Fix automatically</button></div>
+        <details class="bk" id="gaBox" style="margin-top:14px"><summary><b>Series guide announcement</b></summary>
+          <p class="help" style="margin-top:10px">Adds a short spoken announcement of the series field guide just before the closing line. Insert it again after changing a field and it replaces the earlier one.</p>
+          <div class="seg" id="gaMode" style="margin-bottom:12px"><button data-m="first" class="on">First release</button><button data-m="update">New edition</button></div>
+          <div class="field"><label for="gaSeries">Series name, as spoken</label><input type="text" id="gaSeries"></div>
+          <div class="row" style="gap:12px">
+            <div class="field" style="flex:1 1 140px"><label for="gaCount">Episodes in the guide</label><input type="number" id="gaCount" min="2" max="99" inputmode="numeric"></div>
+            <div class="field" style="flex:1 1 140px" id="gaEdRow" hidden><label for="gaEd">Edition number</label><input type="number" id="gaEd" min="2" max="99" inputmode="numeric" value="2"></div>
+          </div>
+          <div class="field"><label for="gaLink">Link, as spoken</label><input type="text" id="gaLink" placeholder="4pmacademy.com/projectfiles"></div>
+          <div class="field"><label for="gaText">Announcement</label><textarea id="gaText" rows="6"></textarea></div>
+          <div class="row"><button class="btn" id="gaInsert">Insert into narration</button><button class="btn ghost" id="gaRemove">Remove from narration</button></div>
+        </details>
         <div class="row" style="margin-top:12px"><button class="btn copy" id="btnSaveNotion">Save script to Notion</button><span class="help">Writes this narration to the Script field and sets Status to Scripted.</span></div>
       </div>
       <div class="card">
@@ -867,7 +879,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.6.0 · 4 Nov 2026';
+const VERSION = '2.7.0 · 5 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -986,6 +998,38 @@ function runCheck(){
 $('#btnFix').onclick=()=>{ $('#narr').value=fixScript($('#narr').value); saveDraft({narration:$('#narr').value}); updateCounts(); runCheck(); toast('Cleaned up'); };
 $('#narr').addEventListener('input',()=>{ clearTimeout(runCheck.t); runCheck.t=setTimeout(runCheck,250); });
 const _fillStep3=fillStep3; fillStep3=function(){ _fillStep3(); runCheck(); };
+/* series guide announcement */
+const NUMW=['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'], TENSW=['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+function numWord(n){ n=Math.round(+n||0); if(n<20) return NUMW[Math.max(0,n)]; const t=Math.floor(n/10), o=n%10; return TENSW[t]+(o?'-'+NUMW[o]:''); }
+function gaSeriesName(){ const sl=String(S.ep&&S.ep.series||'').trim(); return /^(project files|people side|failure files)$/i.test(sl)?'The '+sl:sl; }
+function gaBuild(){
+  const mode=($('#gaMode .on')||{}).dataset.m||'first', bare=$('#gaSeries').value.trim().replace(/^the\s+/i,'')||'series', ser='The '+bare, mid='the '+bare, n=+$('#gaCount').value||10, link=$('#gaLink').value.trim()||'the link in the episode description', ed=+$('#gaEd').value||2;
+  const where=$('#gaLink').value.trim()?('You can get it free at '+link+', or from the episode description.'):('You can get it free from the episode description.');
+  if(mode==='first') return 'One more thing before we finish. '+ser+' now has '+numWord(n)+' episodes, and every one of them has a short companion sheet with the story, the lesson, the key concepts and a reflection question. I have gathered them into one free guide, '+mid+' Field Guide. '+where+' Keep it close, and bring it to your next retrospective.';
+  return 'One more thing before we finish. '+ser+' Field Guide has been updated. Edition '+numWord(ed)+' now covers all '+numWord(n)+' episodes of the series, including the ones from the last few weeks. If you already have an earlier edition, it is worth downloading again. '+where;
+}
+function gaRefresh(auto){ if(auto||!$('#gaText').dataset.edited){ $('#gaText').value=gaBuild(); delete $('#gaText').dataset.edited; } }
+function gaInit(){
+  if(!S.ep) return; const d=draft();
+  $('#gaSeries').value=d.gaSeries||gaSeriesName(); $('#gaLink').value=store.get('cfg.gaLink','')||'';
+  const pub=(store.get('cache.published',[])||[]).filter(x=>x.series===S.ep.series&&x.companionLink&&!/-notes\.pdf$/i.test(x.companionLink)).length;
+  $('#gaCount').value=d.gaCount||Math.max(2,pub||10); $('#gaEdRow').hidden=($('#gaMode .on').dataset.m!=='update');
+  $('#gaText').value=d.gaText||gaBuild(); if(d.gaText) $('#gaText').dataset.edited='1'; else delete $('#gaText').dataset.edited;
+}
+$$('#gaMode button').forEach(b=>b.onclick=()=>{ $$('#gaMode button').forEach(x=>x.classList.toggle('on',x===b)); $('#gaEdRow').hidden=b.dataset.m!=='update'; gaRefresh(true); });
+['gaSeries','gaCount','gaEd','gaLink'].forEach(id=>$('#'+id).addEventListener('input',()=>{ if(id==='gaLink') store.set('cfg.gaLink',$('#gaLink').value.trim()); saveDraft({gaSeries:$('#gaSeries').value,gaCount:$('#gaCount').value}); gaRefresh(true); }));
+$('#gaText').addEventListener('input',()=>{ $('#gaText').dataset.edited='1'; saveDraft({gaText:$('#gaText').value}); });
+const GA_CLOSE=/\s*(This is Project Management Insights[^\n]*)\s*$/i;
+function gaStrip(t){ const old=(draft().gaInserted||'').trim(); if(old && t.includes(old)) t=t.replace(old,'').replace(/\n{3,}/g,'\n\n').replace(/\n\s*\n(\s*This is Project Management Insights)/i,'\n\n$1'); return t; }
+$('#gaInsert').onclick=()=>{
+  const txt=$('#gaText').value.trim(); if(!txt){ toast('The announcement is empty'); return; }
+  let t=gaStrip($('#narr').value).replace(/\s+$/,''); const m=GA_CLOSE.exec(t);
+  t=m?t.slice(0,m.index).replace(/\s+$/,'')+'\n\n'+txt+'\n\n'+m[1].trim():t+'\n\n'+txt;
+  $('#narr').value=t; saveDraft({narration:t,gaInserted:txt,gaText:txt}); updateCounts(); runCheck(); toast('Announcement added before the closing line');
+};
+$('#gaRemove').onclick=()=>{ const t=gaStrip($('#narr').value); if(t===$('#narr').value){ toast('No announcement found in the narration'); return; } $('#narr').value=t.trim(); saveDraft({narration:$('#narr').value,gaInserted:''}); updateCounts(); runCheck(); toast('Announcement removed'); };
+const _fillStep3b=fillStep3; fillStep3=function(){ _fillStep3b(); gaInit(); };
+
 
 S.parts=[];
 async function finalize(){
