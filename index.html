@@ -426,7 +426,7 @@ details.bk summary{cursor:pointer;min-height:36px;display:flex;align-items:cente
   </details>
   <p class="help" id="cMsg"></p>
   <div class="field" id="cLinkRow" hidden><label for="cLink">Line for the episode description</label><div class="row"><input type="text" id="cLink" readonly style="flex:1 1 260px"><button class="btn copy" id="cCopyLink">Copy</button></div></div>
-  <div class="row"><button class="btn primary" id="cMake">Make PDF</button><button class="btn" id="cUp">Upload and copy link</button><button class="btn" id="cUpOwn">Upload a PDF I already have</button><input type="file" id="cFile" accept="application/pdf,.pdf" hidden><button class="btn" id="btnCompAI">Write with AI</button><button class="btn ghost" id="cClose">Close</button></div>
+  <div class="row"><button class="btn primary" id="cMake">Make PDF</button><button class="btn" id="cUp">Upload and copy link</button><button class="btn" id="cSaveFields">Save lesson and key concepts to Notion</button><button class="btn" id="cUpOwn">Upload a PDF I already have</button><input type="file" id="cFile" accept="application/pdf,.pdf" hidden><button class="btn" id="btnCompAI">Write with AI</button><button class="btn ghost" id="cClose">Close</button></div>
 </div></dialog>
 <div class="toast" id="toast" role="status"></div>
 
@@ -879,7 +879,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.8.0 · 7 Nov 2026';
+const VERSION = '2.9.0 · 7 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -1191,6 +1191,22 @@ $('#cAudFile').onchange=async()=>{
     msg(note);
   }catch(err){ msg(err.name==='AbortError'?'Gemini took too long. Try a shorter file.':'Could not use the audio: '+err.message); }
   b.disabled=false;
+};
+
+$('#cSaveFields').onclick=async()=>{
+  const e=S.ep, c=cfg(); if(!e) return; if(!c.worker||!c.pass){ openSettings(); return; }
+  const v=readComp(); const lesson=v.lesson.trim();
+  const kc=v.concepts.split('\n').map(l=>l.split('|')[0].replace(/<[^>]+>/g,'').trim()).filter(Boolean).join('; ');
+  if(!lesson&&!kc){ $('#cMsg').textContent='There is no lesson or key concepts to save.'; return; }
+  const diff=(lesson&&e.lesson&&e.lesson.trim()!==lesson)||(kc&&e.keyConcepts&&e.keyConcepts.trim()!==kc);
+  if(diff && !confirm('Replace the Lesson and Key Concepts in Notion with the text from this screen?')) return;
+  const b=$('#cSaveFields'); b.disabled=true; const lbl=b.textContent; b.textContent='Saving to Notion…';
+  try{
+    const r=await fetch(c.worker+'/fields',{method:'POST',headers:{'X-Passcode':c.pass,'Content-Type':'application/json'},body:JSON.stringify({id:e.id,lesson,keyConcepts:kc})}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+    if(lesson) e.lesson=lesson; if(kc) e.keyConcepts=kc; ['cache.episodes','cache.published'].forEach(k=>{ const a=store.get(k,null); if(a){ const x=a.find(y=>y.id===e.id); if(x){ if(lesson) x.lesson=lesson; if(kc) x.keyConcepts=kc; store.set(k,a); } } });
+    $('#cMsg').textContent='Saved to Notion: '+(j.saved||[]).join(' and ')+'.';
+  }catch(err){ $('#cMsg').textContent='Could not save to Notion: '+err.message+(/404|405|Not found/i.test(err.message)?' (redeploy worker.js first)':''); }
+  b.disabled=false; b.textContent=lbl;
 };
 let jsLoad=null;
 function loadJsPdf(){ if(window.jspdf) return Promise.resolve(); if(jsLoad) return jsLoad; jsLoad=new Promise((res,rej)=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload=res; s.onerror=()=>{ jsLoad=null; rej(new Error('Could not load the PDF library')); }; document.head.appendChild(s); }); return jsLoad; }
