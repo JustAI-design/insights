@@ -879,7 +879,7 @@ $('#q').addEventListener('input',e=>{ S.q=e.target.value; renderEps(); });
 initMusic();
 window.Studio = {enhanceVoice, DEFAULT_TEMPLATE, mixTracks, music, wavStereo, buildPrompt, cleanNarration, chunkText, wordCount, pcmFromBytes, wavBlob, nextWeekday, findAudioB64};
 /* ---------- v2 features ---------- */
-const VERSION = '2.7.0 · 5 Nov 2026';
+const VERSION = '2.8.0 · 7 Nov 2026';
 const DEFAULT_BANNED = 'overall, leverage, navigate, delve, tapestry, embrace, resonate, dynamic, testament, fascinating, explore, captivate, intersection, elevate, unravel, dive, deep dive, fast-paced, surpass, boast, meticulous, strategically, garner';
 const AI_DEFAULTS = { claude: 'claude-sonnet-5-5', openai: 'gpt-5' };
 function bannedList(){ return String(store.get('cfg.banned', DEFAULT_BANNED)||'').split(/[,\n]/).map(s=>s.trim().toLowerCase()).filter(Boolean); }
@@ -1124,6 +1124,11 @@ function compDefaults(){
 function openComp(){
   $('#cEpId').textContent=[S.ep.code,S.ep.title].filter(Boolean).join('  |  ');
   const v=compDefaults(); $('#cSeries').value=v.series; $('#cTitle').value=v.title; $('#cSub').value=v.subtitle; $('#cWhat').value=v.what; $('#cQuote').value=v.quote; $('#cLesson').value=v.lesson; $('#cConcepts').value=v.concepts; $('#cRef').value=v.reflection; $('#cMsg').textContent=''; const u=draft().compUrl||S.ep.companionLink; $('#cLinkRow').hidden=!u; if(u) $('#cLink').value='Free companion guide: '+u; renderPosts(draft().posts||[]); $('#dlgComp').showModal();
+  const empty=!v.what.trim()&&!v.quote.trim()&&!v.reflection.trim(); if(!empty) return;
+  const src=compNarration(), a=aiCfg();
+  if(!src.full){ $('#cMsg').textContent='No script is available for this episode, so "Write with AI" would use only the description and key concepts. For a better result, open "Fill from the episode audio" above.'; $('#cAudBox').open=true; }
+  else if(a.key){ $('#btnCompAI').click(); }
+  else $('#cMsg').textContent='The script is ready. Add a Claude or ChatGPT key in settings to write the companion with AI.';
 }
 function readComp(){ return {series:$('#cSeries').value.trim(), title:$('#cTitle').value.trim(), subtitle:$('#cSub').value.trim(), what:$('#cWhat').value, quote:$('#cQuote').value.trim(), lesson:$('#cLesson').value.trim(), concepts:$('#cConcepts').value, reflection:$('#cRef').value.trim()}; }
 ['cSeries','cTitle','cSub','cWhat','cQuote','cLesson','cConcepts','cRef'].forEach(id=>$('#'+id).addEventListener('input',()=>saveDraft({comp:readComp()})));
@@ -1131,7 +1136,7 @@ $('#btnComp').onclick=openComp; $('#cClose').onclick=()=>$('#dlgComp').close();
 $('#btnCompAI').onclick=async()=>{
   const a=aiCfg(); if(!a.key){ toast('Choose Claude or ChatGPT and add a key in settings'); return; }
   const src=compNarration(); const narr=src.text; if(!narr){ toast('No narration, description or key concepts to work from'); return; }
-  const v=readComp(); const b=$('#btnCompAI'); b.disabled=true; $('#cMsg').textContent='Asking '+a.name+'…';
+  const v=readComp(); const b=$('#btnCompAI'); b.disabled=true; $('#cMsg').textContent='Asking '+a.name+(src.full?'…':' (using only the description and key concepts, no script found)…');
   const prompt='You write the listener companion for an episode of the podcast Project Management Insights. '+(src.full?'Use the narration below.':'The full narration is not available, so use the episode description and key concepts below.')+' Reply with ONLY valid JSON, no code fences, with these keys: subtitle (one line summary under the title), what_happened (three short paragraphs separated by a blank line: setup, problem, resolution; story summary, not bullets), quote_text (one to three sentences, a memorable statement the listener could repeat), core_lesson (one paragraph expanding on the quote), concepts (array of 3 to 5 objects with title and body; the body defines the project management concept and connects it to this episode story, and may use <b> and <i>), reflection (a genuine, non-leading question of two to four sentences that makes the listener examine their own projects). Keep the language conversational. Never use em dashes. Avoid these words: '+bannedList().join(', ')+'.\n\nEpisode title: '+v.title+'\n\nNarration:\n'+narr;
   try{
     const txt=await aiComplete(prompt,(t)=>{ $('#cMsg').textContent=a.name+' is writing… '+t.length+' characters'; },null,4000);
